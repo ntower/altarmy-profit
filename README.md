@@ -37,9 +37,12 @@ Coarse Thread,120
 ## Data notes
 
 - Pinned build: see `DEFAULT_BUILD` in `src/wowprofit/ingest.py`. Pass `--build` for a newer one.
-- **Disenchant results are not in DB2** (they are server-side loot tables). Fill `data/disenchant.csv`
-  (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) from a source such as
-  Wowhead's Forever database, then re-run `wowprofit ingest`. Until then disenchant is ignored.
+- **Disenchant results are not in DB2** (they are server-side loot tables). `data/disenchant.csv`
+  (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds Classic-era
+  rates, derived from the brackets Auctionator uses for Classic clients. Counts within a row are
+  assumed uniform. Coverage: greens ilvl 5–65, blues 11–65, epics 40–80; items outside those
+  ranges get no disenchant value. Forever-specific rates are not yet published — verify against
+  Wowhead's Forever database as data comes in, then re-run `wowprofit ingest`.
 - **Vendor-sold reagents:** DB2 doesn't say which vendor sells what. Enter vendor prices as ordinary prices.
 - Recipe output count is derived from `SpellEffect.EffectBasePointsF`; verify against known recipes.
 
