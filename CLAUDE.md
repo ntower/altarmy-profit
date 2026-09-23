@@ -10,15 +10,17 @@ Conventions for AI agents working in this repository.
 
 - `src/wowprofit/ingest.py` – download DB2 CSVs and load them into SQLite
 - `src/wowprofit/engine.py` – pure profit/chain logic (no I/O)
-- `src/wowprofit/prices.py` – price sources (CSV import; addon SavedVariables importer planned)
+- `src/wowprofit/prices.py` – price sources (CSV import, Auctionator import)
+- `src/wowprofit/auctionator.py` – pure parser for Auctionator's SavedVariables (Lua string holding CBOR)
 - `src/wowprofit/db.py` – SQLite schema and connection helpers
-- `src/wowprofit/cli.py` – argparse command line (`ingest`, `import-prices`, `set-price`, `rank`)
+- `src/wowprofit/cli.py` – argparse command line (`ingest`, `import-prices`, `import-auctionator`, `set-price`, `rank`, `ui`)
+- `src/wowprofit/webui.py` – Streamlit UI; profession filter via `engine.recipes_for_professions` (chains only sub-craft through selected professions)
 - `data/disenchant.csv` – hand-filled disenchant results (not in DB2)
 - `tests/` – pytest; `conftest.py` holds a tiny fake DB2 CSV set shared by tests
 
 ## Commands
 
-Use the project venv (`.venv`); do not install packages globally. If it is missing: `python -m venv .venv`, then `.venv\Scripts\python -m pip install -e ".[dev]"`.
+Use the project venv (`.venv`); do not install packages globally. If it is missing: `python -m venv .venv`, then `.venv\Scripts\python -m pip install -e ".[dev,ui]"`.
 
 - `python scripts/check.py` – ruff lint, ruff format check, mypy (strict), pytest. **Run before considering any change done.**
 - `ruff check . --fix`, `ruff format .`, `mypy`, `pytest` – individual tools.

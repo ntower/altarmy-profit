@@ -1,7 +1,6 @@
 """Price sources. Every source ends up as rows in the `prices` table (copper per item).
 
-Implemented: CSV import (item_id or item name). Planned: parsing an AH scanner addon's
-SavedVariables Lua file (Auctionator etc.) once we know what Forever's client produces.
+Implemented: CSV import (item_id or item name) and Auctionator's SavedVariables price database.
 """
 
 from __future__ import annotations
@@ -9,6 +8,8 @@ from __future__ import annotations
 import csv
 import sqlite3
 from pathlib import Path
+
+from . import auctionator
 
 
 def import_csv(conn: sqlite3.Connection, path: Path, source: str = "csv") -> tuple[int, list[str]]:
@@ -30,6 +31,31 @@ def import_csv(conn: sqlite3.Connection, path: Path, source: str = "csv") -> tup
             imported += 1
     conn.commit()
     return imported, unresolved
+
+
+def import_auctionator(
+    conn: sqlite3.Connection, path: Path, realm: str | None = None
+) -> tuple[str, int, int]:
+    """Import the latest minimum buyouts for one realm. Returns (realm, imported, not in `items`).
+
+    `realm` may be omitted when the file holds a single realm. Items missing from this scan keep
+    their previous price.
+    """
+    realms = auctionator.parse_price_database(path.read_bytes())
+    if realm is None:
+        if len(realms) != 1:
+            raise ValueError(
+                f"file has {len(realms)} realms, pick one with --realm: {', '.join(sorted(realms))}"
+            )
+        (realm,) = realms
+    elif realm not in realms:
+        raise ValueError(f"realm {realm!r} not in file; found: {', '.join(sorted(realms))}")
+    known = {r[0] for r in conn.execute("SELECT id FROM items")}
+    item_prices = realms[realm]
+    for item_id, price in item_prices.items():
+        set_price(conn, item_id, price, "auctionator")
+    conn.commit()
+    return realm, len(item_prices), len(item_prices.keys() - known)
 
 
 def set_price(conn: sqlite3.Connection, item_id: int, price: int, source: str = "manual") -> None:

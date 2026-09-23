@@ -1,9 +1,11 @@
-"""Command line interface: ingest, import-prices, set-price, rank."""
+"""Command line interface: ingest, import-prices, import-auctionator, set-price, rank, ui."""
 
 from __future__ import annotations
 
 import argparse
+import os
 import sqlite3
+import sys
 from pathlib import Path
 
 from . import db, ingest, prices
@@ -53,6 +55,18 @@ def cmd_import_prices(args: argparse.Namespace) -> None:
         print("Unresolved names:", ", ".join(unresolved))
 
 
+def cmd_import_auctionator(args: argparse.Namespace) -> None:
+    conn = db.connect(args.db)
+    db.init_schema(conn)
+    try:
+        realm, n, unknown = prices.import_auctionator(conn, Path(args.file), args.realm)
+    except ValueError as e:
+        sys.exit(str(e))
+    print(f"Imported {n} prices from realm {realm}.")
+    if unknown:
+        print(f"{unknown} of them are item IDs not in the items table (stored anyway).")
+
+
 def cmd_set_price(args: argparse.Namespace) -> None:
     conn = db.connect(args.db)
     prices.set_price(conn, args.item_id, args.copper)
@@ -76,6 +90,16 @@ def cmd_rank(args: argparse.Namespace) -> None:
             print(f"{'':>24}chain: {line}")
 
 
+def cmd_ui(args: argparse.Namespace) -> None:
+    try:
+        from streamlit.web import cli as stcli
+    except ImportError:
+        sys.exit('The web UI needs Streamlit: pip install -e ".[ui]"')
+    os.environ["WOWPROFIT_DB"] = str(Path(args.db).resolve())
+    sys.argv = ["streamlit", "run", str(Path(__file__).with_name("webui.py")), *args.streamlit_args]
+    sys.exit(stcli.main())
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="wowprofit")
     p.add_argument("--db", default=str(db.DEFAULT_DB))
@@ -90,6 +114,14 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("file")
     s.set_defaults(fn=cmd_import_prices)
 
+    s = sub.add_parser(
+        "import-auctionator",
+        help="import minimum buyouts from Auctionator's account-wide SavedVariables/Auctionator.lua",
+    )
+    s.add_argument("file")
+    s.add_argument("--realm", help="realm key in the file (needed when it holds several)")
+    s.set_defaults(fn=cmd_import_auctionator)
+
     s = sub.add_parser("set-price", help="set one item's price in copper")
     s.add_argument("item_id", type=int)
     s.add_argument("copper", type=int)
@@ -101,7 +133,16 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--skill", help="filter by profession name, e.g. Tailoring")
     s.set_defaults(fn=cmd_rank)
 
-    args = p.parse_args(argv)
+    s = sub.add_parser(
+        "ui",
+        help="open the web UI (needs the [ui] extra); extra args go to streamlit, e.g. --server.port 8600",
+    )
+    s.set_defaults(fn=cmd_ui)
+
+    args, extra = p.parse_known_args(argv)
+    if extra and args.cmd != "ui":
+        p.error(f"unrecognized arguments: {' '.join(extra)}")
+    args.streamlit_args = extra
     args.fn(args)
 
 

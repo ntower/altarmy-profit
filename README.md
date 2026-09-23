@@ -11,7 +11,7 @@ Local tool that finds profitable crafting recipes and production chains for **Wo
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[dev]"
+pip install -e ".[dev,ui]"   # drop ,ui if you only want the CLI
 python scripts/check.py     # ruff lint + ruff format --check + mypy (strict) + pytest
 ```
 
@@ -22,9 +22,16 @@ Individual tools: `ruff check . --fix`, `ruff format .`, `mypy`, `pytest`.
 ```powershell
 wowprofit ingest                          # downloads DB2 tables into cache/, builds data/wowprofit.db
 wowprofit import-prices prices.csv        # columns: item_id (or name), price   (copper)
+wowprofit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\Auctionator.lua"
 wowprofit set-price 2589 250              # one item, copper
 wowprofit rank --top 25 --skill Tailoring
+wowprofit ui                              # web UI: pick your professions, see ranked chains
 ```
+
+`import-auctionator` reads Auctionator's **account-wide** SavedVariables file (not the per-character
+one) and stores each item's latest minimum buyout. WoW writes SavedVariables on logout or `/reload`,
+so do one of those after scanning. Add `--realm "<name>"` if the file holds several realms (the error
+lists them). Items missing from a scan keep their previous price.
 
 `prices.csv` example:
 
@@ -50,12 +57,12 @@ Coarse Thread,120
 
 - `src/wowprofit/ingest.py` – download + load DB2 CSVs
 - `src/wowprofit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
-- `src/wowprofit/prices.py` – price sources (CSV; addon SavedVariables importer is planned)
+- `src/wowprofit/prices.py` – price sources (CSV, Auctionator SavedVariables via `auctionator.py`)
 - `src/wowprofit/cli.py` – command line
 
 ## Roadmap
 
 1. Verify ingest against known recipes on a real build.
-2. Price importer for an AH-scanner addon's SavedVariables Lua file.
-3. Streamlit UI (`pip install -e ".[ui]"`).
+2. ~~Auctionator SavedVariables importer~~ (done: `wowprofit import-auctionator`).
+3. ~~Streamlit UI~~ (done: `wowprofit ui`). Next: filter by skill level, which needs real required-skill data.
 4. Recipe availability (who learns what / trainer vs. drop), auction volume and price-history risk.

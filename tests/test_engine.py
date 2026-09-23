@@ -1,4 +1,4 @@
-from wowprofit.engine import DisenchantRow, Item, Market, Recipe, Result, ah_net
+from wowprofit.engine import DisenchantRow, Item, Market, Recipe, Result, ah_net, recipes_for_professions
 
 LINEN, THREAD, BOLT, GREEN, DUST = 1, 2, 3, 4, 5
 
@@ -94,3 +94,31 @@ def test_rank_sorted_by_profit() -> None:
     m = make_market({LINEN: 10}, recipes)
     ranked = m.rank()
     assert [r.recipe.name for r in ranked] == ["Cheap", "Mid"]  # Loser costs 600 vs 500 vendor
+
+
+def test_recipes_for_professions_ignores_case() -> None:
+    recipes = [
+        Recipe(10, "Robe", GREEN, 1, ((LINEN, 1),), "Tailoring"),
+        Recipe(11, "Bolt", BOLT, 1, ((LINEN, 2),), "Mining"),
+        Recipe(12, "Other", DUST, 1, ((LINEN, 2),), "Enchanting"),
+    ]
+    got = recipes_for_professions(recipes, ["tailoring", "MINING"])
+    assert [r.name for r in got] == ["Robe", "Bolt"]
+
+
+def test_chain_only_subcrafts_through_selected_professions() -> None:
+    recipes = [
+        Recipe(11, "Smelt Bolt", BOLT, 1, ((LINEN, 2),), "Mining"),
+        Recipe(12, "Green Robe", GREEN, 1, ((BOLT, 3), (THREAD, 1)), "Blacksmithing"),
+    ]
+    prices = {LINEN: 10, THREAD: 5, BOLT: 100}
+
+    smith_only = make_market(prices, recipes_for_professions(recipes, ["Blacksmithing"]))
+    (res,) = smith_only.rank(min_profit=-(10**9))
+    assert res.cost == 3 * 100 + 5  # must buy bolts
+    assert res.crafted_reagents == []
+
+    both = make_market(prices, recipes_for_professions(recipes, ["Blacksmithing", "Mining"]))
+    res = must_evaluate(both, recipes[1])
+    assert res.cost == 3 * 20 + 5
+    assert res.crafted_reagents == ["3x Bolt of Linen via Smelt Bolt"]

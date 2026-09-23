@@ -34,3 +34,9 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4"]
 python_version = "3.11"
 strict = true
 files = ["src", "tests"]
+
+[[tool.mypy.overrides]]
+# Streamlit pulls these in; numpy's stubs use 3.12-only syntax that mypy rejects under python_version 3.11.
+module = ["numpy", "numpy.*", "pandas", "pandas.*", "pyarrow", "pyarrow.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

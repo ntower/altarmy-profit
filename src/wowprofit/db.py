@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS disenchant (
 CREATE TABLE IF NOT EXISTS prices (
     item_id INTEGER PRIMARY KEY,
     price INTEGER NOT NULL,                  -- copper, per single item
-    source TEXT NOT NULL DEFAULT 'manual',   -- manual | csv | addon | vendor
+    source TEXT NOT NULL DEFAULT 'manual',   -- manual | csv | auctionator | vendor
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

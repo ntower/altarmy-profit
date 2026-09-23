@@ -2,12 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
 MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)
+# Real professions offered in the UI; the DB also holds junk skill lines (test, class, etc.).
+PROFESSIONS = (
+    "Alchemy",
+    "Blacksmithing",
+    "Cooking",
+    "Enchanting",
+    "Engineering",
+    "First Aid",
+    "Fishing",
+    "Herbalism",
+    "Leatherworking",
+    "Mining",
+    "Poisons",
+    "Skinning",
+    "Tailoring",
+)
 
 
 @dataclass(frozen=True)
@@ -171,6 +188,13 @@ class Market:
             if res and res.profit >= min_profit:
                 results.append(res)
         return sorted(results, key=lambda x: x.profit, reverse=True)
+
+
+def recipes_for_professions(recipes: Iterable[Recipe], professions: Iterable[str]) -> list[Recipe]:
+    """Recipes from the given professions (case-insensitive). A Market built from these only chains
+    through recipes you can craft."""
+    wanted = {p.lower() for p in professions}
+    return [r for r in recipes if r.skill_name.lower() in wanted]
 
 
 def format_money(copper: int) -> str:
