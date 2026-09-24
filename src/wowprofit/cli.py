@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
+import threading
+import webbrowser
 from pathlib import Path
 
 from . import db, ingest, prices
@@ -64,12 +65,18 @@ def cmd_rank(args: argparse.Namespace) -> None:
 
 def cmd_ui(args: argparse.Namespace) -> None:
     try:
-        from streamlit.web import cli as stcli
+        import uvicorn
+
+        from .api import DEFAULT_DIST, create_app
     except ImportError:
-        sys.exit('The web UI needs Streamlit: pip install -e ".[ui]"')
-    os.environ["WOWPROFIT_DB"] = str(Path(args.db).resolve())
-    sys.argv = ["streamlit", "run", str(Path(__file__).with_name("webui.py")), *args.streamlit_args]
-    sys.exit(stcli.main())
+        sys.exit('The web UI needs FastAPI and uvicorn: pip install -e ".[ui]"')
+    if not (DEFAULT_DIST / "index.html").is_file():
+        print(f"Front end not built ({DEFAULT_DIST} missing): run `npm ci` and `npm run build` in frontend/.")
+    url = f"http://{args.host}:{args.port}"
+    if not args.no_browser:
+        threading.Timer(1.0, webbrowser.open, [url]).start()
+    print(f"wow-profit UI on {url} (Ctrl+C to stop)")
+    uvicorn.run(create_app(Path(args.db).resolve()), host=args.host, port=args.port)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -105,16 +112,13 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--skill", help="filter by profession name, e.g. Tailoring")
     s.set_defaults(fn=cmd_rank)
 
-    s = sub.add_parser(
-        "ui",
-        help="open the web UI (needs the [ui] extra); extra args go to streamlit, e.g. --server.port 8600",
-    )
+    s = sub.add_parser("ui", help="serve the web UI and API locally (needs the [ui] extra)")
+    s.add_argument("--host", default="127.0.0.1")
+    s.add_argument("--port", type=int, default=8600)
+    s.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     s.set_defaults(fn=cmd_ui)
 
-    args, extra = p.parse_known_args(argv)
-    if extra and args.cmd != "ui":
-        p.error(f"unrecognized arguments: {' '.join(extra)}")
-    args.streamlit_args = extra
+    args = p.parse_args(argv)
     args.fn(args)
 
 

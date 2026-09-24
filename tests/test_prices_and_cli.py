@@ -1,7 +1,9 @@
 import sqlite3
 from pathlib import Path
 
-from wowprofit import db, ingest, prices, store
+import pytest
+
+from wowprofit import cli, db, ingest, prices, store
 
 from .conftest import write_csv
 
@@ -67,3 +69,19 @@ def test_count_rows_and_last_import(conn: sqlite3.Connection) -> None:
     assert db.count_rows(conn, "prices") == 2
     assert db.last_import(conn) is not None
     assert db.last_import(conn, "csv") is None
+
+
+def test_ui_serves_api_with_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import uvicorn
+    from fastapi import FastAPI
+
+    calls: list[tuple[object, str, int]] = []
+
+    def fake_run(app: object, host: str, port: int) -> None:
+        calls.append((app, host, port))
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    cli.main(["--db", str(tmp_path / "x.db"), "ui", "--port", "9123", "--no-browser"])
+    ((app, host, port),) = calls
+    assert isinstance(app, FastAPI)
+    assert (host, port) == ("127.0.0.1", 9123)

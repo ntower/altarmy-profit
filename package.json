@@ -1,0 +1,14 @@
+{
+  "name": "wow-profit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently --kill-others --names api,web --prefix-colors blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node scripts/dev-api.mjs",
+    "dev:web": "wait-on --timeout 60000 http-get://127.0.0.1:8600/api/status && npm --prefix frontend run dev -- --open"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "wait-on": "^9.1.0"
+  }
+}
