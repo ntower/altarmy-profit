@@ -39,4 +39,4 @@ Use the project venv (`.venv`); do not install packages globally. If it is missi
 - DB2 does not say which vendors sell which reagents; vendor prices are entered as ordinary prices.
 - `recipes.min_skill` currently comes out as 1 for every real recipe, so do not rely on it. Recipe output count comes from `SpellEffect.EffectBasePointsF` and is only spot-checked.
 - Re-running `wowprofit ingest` rebuilds items, recipes and disenchant rows but preserves the `prices` table.
-- The pinned build is `DEFAULT_BUILD` in `ingest.py`. Downloaded CSVs are cached under `cache/` (git-ignored, as is `data/*.db`).
+- The pinned build is `DEFAULT_BUILD` in `ingest.py`; `ingest.latest_build()` resolves the newest `wow_classic_beta` build from wago.tools' `/api/builds/latest` JSON. Downloaded CSVs are cached under `cache/` (git-ignored, as is `data/*.db`).

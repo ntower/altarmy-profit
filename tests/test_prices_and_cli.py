@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from wowprofit import cli, ingest, prices
+from wowprofit import cli, db, ingest, prices
 
 from .conftest import write_csv
 
@@ -41,3 +41,18 @@ def test_load_market_ranks_end_to_end(db2_paths: dict[str, Path], conn: sqlite3.
     assert result.cost == 300
     assert result.profit == 200  # vendors for 500
     assert result.best_exit == "vendor"
+
+
+def test_find_auctionator_files(tmp_path: Path) -> None:
+    sv = tmp_path / "_classic_beta_" / "WTF" / "Account" / "ME" / "SavedVariables"
+    sv.mkdir(parents=True)
+    (sv / "Auctionator.lua").write_text("")
+    (sv / "Other.lua").write_text("")
+    assert prices.find_auctionator_files([tmp_path, tmp_path / "missing"]) == [sv / "Auctionator.lua"]
+
+
+def test_meta_roundtrip(conn: sqlite3.Connection) -> None:
+    assert db.get_meta(conn, "x") is None
+    db.set_meta(conn, "x", "1")
+    db.set_meta(conn, "x", "2")
+    assert db.get_meta(conn, "x") == "2"

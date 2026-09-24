@@ -1,7 +1,10 @@
+import json
 import sqlite3
 from pathlib import Path
 
-from wowprofit import ingest
+import pytest
+
+from wowprofit import db, ingest
 
 from .conftest import write_csv
 
@@ -77,3 +80,32 @@ def test_int_parsing_is_forgiving() -> None:
     assert ingest._int("") == 0
     assert ingest._int(None, 7) == 7
     assert ingest._int("abc", 5) == 5
+
+
+def test_parse_latest_build_picks_product() -> None:
+    payload = json.dumps(
+        {
+            "wow": {"product": "wow", "version": "12.1.0.69933"},
+            "wow_classic_beta": {"product": "wow_classic_beta", "version": "1.60.1.69977"},
+        }
+    ).encode()
+    assert ingest.parse_latest_build(payload) == "1.60.1.69977"
+    assert ingest.parse_latest_build(payload, "wow") == "12.1.0.69933"
+    with pytest.raises(ValueError, match="wow_nope"):
+        ingest.parse_latest_build(payload, "wow_nope")
+
+
+def test_update_downloads_builds_and_records_build(
+    db2_paths: dict[str, Path], conn: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[str, Path]] = []
+
+    def fake_download_all(build: str, cache_dir: Path) -> dict[str, Path]:
+        calls.append((build, cache_dir))
+        return db2_paths
+
+    monkeypatch.setattr(ingest, "download_all", fake_download_all)
+    stats = ingest.update(conn, "1.2.3.4", tmp_path / "cache")
+    assert calls == [("1.2.3.4", tmp_path / "cache")]
+    assert stats["recipes"] == 1
+    assert db.get_meta(conn, "build") == "1.2.3.4"

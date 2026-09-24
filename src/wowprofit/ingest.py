@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import sqlite3
 import urllib.request
 from collections.abc import Iterator
@@ -11,9 +12,30 @@ from pathlib import Path
 from . import db
 
 DEFAULT_BUILD = "1.60.1.69913"
+PRODUCT = "wow_classic_beta"  # WoW: Forever builds on wago.tools
+LATEST_URL = "https://wago.tools/api/builds/latest"
 TABLES = ["Item", "ItemSparse", "SkillLine", "SkillLineAbility", "SpellName", "SpellEffect", "SpellReagents"]
 EFFECT_CREATE_ITEM = 24
 MAX_REAGENTS = 8
+
+
+def _fetch(url: str) -> bytes:
+    req = urllib.request.Request(url, headers={"User-Agent": "wowprofit/0.1"})
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data: bytes = resp.read()
+    return data
+
+
+def parse_latest_build(payload: bytes, product: str = PRODUCT) -> str:
+    """Pick `product`'s version out of wago.tools' /api/builds/latest JSON."""
+    builds = json.loads(payload)
+    if product not in builds:
+        raise ValueError(f"no {product} build in wago.tools' latest builds")
+    return str(builds[product]["version"])
+
+
+def latest_build(product: str = PRODUCT) -> str:
+    return parse_latest_build(_fetch(LATEST_URL), product)
 
 
 def download(table: str, build: str, cache_dir: Path) -> Path:
@@ -21,10 +43,7 @@ def download(table: str, build: str, cache_dir: Path) -> Path:
     if dest.exists():
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
-    url = f"https://wago.tools/db2/{table}/csv?build={build}"
-    req = urllib.request.Request(url, headers={"User-Agent": "wowprofit/0.1"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        dest.write_bytes(resp.read())
+    dest.write_bytes(_fetch(f"https://wago.tools/db2/{table}/csv?build={build}"))
     return dest
 
 
@@ -145,3 +164,12 @@ def build_db(
 
     conn.commit()
     return {"items": len(items), "recipes": n_recipes, "disenchant_rows": n_de}
+
+
+def update(
+    conn: sqlite3.Connection, build: str, cache_dir: Path, disenchant_csv: Path | None = None
+) -> dict[str, int]:
+    """Download `build` (cached per build) and rebuild the database from it, keeping prices."""
+    stats = build_db(download_all(build, cache_dir), conn, disenchant_csv)
+    db.set_meta(conn, "build", build)
+    return stats

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
 
 from . import auctionator
@@ -31,6 +32,25 @@ def import_csv(conn: sqlite3.Connection, path: Path, source: str = "csv") -> tup
             imported += 1
     conn.commit()
     return imported, unresolved
+
+
+WOW_ROOTS = [
+    Path(r"C:\Program Files (x86)\World of Warcraft"),
+    Path(r"C:\Program Files\World of Warcraft"),
+    Path(r"D:\World of Warcraft"),
+]
+
+
+def find_auctionator_files(roots: Iterable[Path] = WOW_ROOTS) -> list[Path]:
+    """Account-wide Auctionator SavedVariables under each WoW install's flavor folders (_retail_, ...)."""
+    found: list[Path] = []
+    for root in roots:
+        found += sorted(root.glob("_*_/WTF/Account/*/SavedVariables/Auctionator.lua"))
+    return found
+
+
+def auctionator_realms(path: Path) -> list[str]:
+    return sorted(auctionator.parse_price_database(path.read_bytes()))
 
 
 def import_auctionator(

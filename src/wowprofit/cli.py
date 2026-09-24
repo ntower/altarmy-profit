@@ -39,12 +39,10 @@ def load_market(conn: sqlite3.Connection) -> Market:
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
-    paths = ingest.download_all(args.build, Path(args.cache))
+    build = ingest.latest_build() if args.build == "latest" else args.build
     conn = db.connect(args.db)
-    stats = ingest.build_db(paths, conn, DISENCHANT_CSV)
-    conn.execute("INSERT OR REPLACE INTO meta VALUES ('build', ?)", (args.build,))
-    conn.commit()
-    print(f"Ingested build {args.build}: {stats}")
+    stats = ingest.update(conn, build, Path(args.cache), DISENCHANT_CSV)
+    print(f"Ingested build {build}: {stats}")
 
 
 def cmd_import_prices(args: argparse.Namespace) -> None:
@@ -106,7 +104,7 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="download DB2 tables from wago.tools and build the database")
-    s.add_argument("--build", default=ingest.DEFAULT_BUILD)
+    s.add_argument("--build", default=ingest.DEFAULT_BUILD, help='a build version, or "latest"')
     s.add_argument("--cache", default="cache")
     s.set_defaults(fn=cmd_ingest)
 
