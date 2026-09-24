@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from wowprofit import altarmy, ingest, store
+from altarmy_profit import altarmy, ingest, store
 
 from .test_altarmy import ALTARMY_SV
 

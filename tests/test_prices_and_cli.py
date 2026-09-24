@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wowprofit import cli, db, ingest, prices, store
+from altarmy_profit import cli, db, ingest, prices, store
 
 from .conftest import SV_DIR, write_csv
 

@@ -149,7 +149,7 @@ function AddonDataCard() {
         <Title order={3}>Addon data</Title>
         <Text size="sm" c="dimmed">
           Characters come from Alt Army and prices from Auctionator. WoW writes both files on logout or /reload;
-          wow-profit re-reads them whenever they change.
+          altarmy-profit re-reads them whenever they change.
         </Text>
         {s.warnings.map((w) => (
           <Alert key={w} color="yellow">

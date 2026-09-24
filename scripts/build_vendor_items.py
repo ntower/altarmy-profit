@@ -1,13 +1,13 @@
 """Regenerate data/vendor_items.csv from vmangos' world database (downloaded once into cache/vmangos).
 
 Usage: python scripts/build_vendor_items.py
-Then run a game data update (or `wowprofit ingest`) to load it.
+Then run a game data update (or `altarmy-profit ingest`) to load it.
 """
 
 import sqlite3
 from pathlib import Path
 
-from wowprofit import vmangos
+from altarmy_profit import vmangos
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "vendor_items.csv"

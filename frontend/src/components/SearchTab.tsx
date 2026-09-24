@@ -157,20 +157,20 @@ export function SearchTab() {
   const characters = useCharacters()
   const select = useSelectRealm()
   const [includeUnlearned, setIncludeUnlearned] = useStoredState(
-    'wowprofit.search.includeUnlearned',
+    'altarmy-profit.search.includeUnlearned',
     z.boolean(),
     false,
   )
-  const [open, setOpen] = useStoredState('wowprofit.search.open', z.array(z.enum(SECTIONS)), NONE_OPEN)
-  const [exits, setExits] = useStoredState('wowprofit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
+  const [open, setOpen] = useStoredState('altarmy-profit.search.open', z.array(z.enum(SECTIONS)), NONE_OPEN)
+  const [exits, setExits] = useStoredState('altarmy-profit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
   // Money in gold and ROI in percent, as typed; converted for the API below.
-  const [minCost, setMinCost] = useStoredState('wowprofit.search.minCost', bound, 0)
-  const [maxCost, setMaxCost] = useStoredState('wowprofit.search.maxCost', bound, null)
+  const [minCost, setMinCost] = useStoredState('altarmy-profit.search.minCost', bound, 0)
+  const [maxCost, setMaxCost] = useStoredState('altarmy-profit.search.maxCost', bound, null)
   // 1 copper: only profitable recipes by default.
-  const [minProfit, setMinProfit] = useStoredState('wowprofit.search.minProfit', bound, 0.0001)
-  const [maxProfit, setMaxProfit] = useStoredState('wowprofit.search.maxProfit', bound, null)
-  const [minRoi, setMinRoi] = useStoredState('wowprofit.search.minRoi', bound, 0)
-  const [maxRoi, setMaxRoi] = useStoredState('wowprofit.search.maxRoi', bound, null)
+  const [minProfit, setMinProfit] = useStoredState('altarmy-profit.search.minProfit', bound, 0.0001)
+  const [maxProfit, setMaxProfit] = useStoredState('altarmy-profit.search.maxProfit', bound, null)
+  const [minRoi, setMinRoi] = useStoredState('altarmy-profit.search.minRoi', bound, 0)
+  const [maxRoi, setMaxRoi] = useStoredState('altarmy-profit.search.maxRoi', bound, null)
   const filters = useMemo<Filters>(
     () => ({
       includeUnlearned,
@@ -191,7 +191,7 @@ export function SearchTab() {
   if (status.data.recipes === 0) {
     return (
       <Alert color="red">
-        No recipes in {status.data.db_path}. Download game data on the Manage tab (or run `wowprofit ingest`).
+        No recipes in {status.data.db_path}. Download game data on the Manage tab (or run `altarmy-profit ingest`).
       </Alert>
     )
   }

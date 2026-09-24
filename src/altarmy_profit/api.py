@@ -635,7 +635,7 @@ def create_app(
 ) -> FastAPI:
     """Build the app. Touches no database or network, so tests and the OpenAPI export can call it freely."""
     db_path = Path(db_path)
-    app = FastAPI(title="wow-profit", version="0.1.0")
+    app = FastAPI(title="altarmy-profit", version="0.1.0")
     app.state.wow = AppState(
         db_path,
         cache_dir,

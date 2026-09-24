@@ -1,4 +1,4 @@
-# wow-profit
+# altarmy-profit
 
 Local tool that finds profitable crafting recipes and production chains for **WoW: Forever**.
 
@@ -22,14 +22,14 @@ python scripts/check.py     # Python: ruff, mypy (strict), pytest. Front end: ox
 ## Usage
 
 ```powershell
-wowprofit ingest                          # downloads DB2 tables into cache/, builds data/wowprofit.db
-wowprofit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
-wowprofit import-prices prices.csv        # columns: item_id (or name), price   (copper)
-wowprofit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\Auctionator.lua"
-wowprofit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\AltArmy_TBC.lua"
-wowprofit set-price 2589 250              # one item, copper
-wowprofit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
-wowprofit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
+altarmy-profit ingest                          # downloads DB2 tables into cache/, builds data/altarmy-profit.db
+altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
+altarmy-profit import-prices prices.csv        # columns: item_id (or name), price   (copper)
+altarmy-profit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\Auctionator.lua"
+altarmy-profit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\AltArmy_TBC.lua"
+altarmy-profit set-price 2589 250              # one item, copper
+altarmy-profit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
+altarmy-profit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
 ```
 
 `import-auctionator` reads Auctionator's **account-wide** SavedVariables file (not the per-character
@@ -41,7 +41,7 @@ lists them). Items missing from a scan keep their previous price.
 characters, their professions and the recipes they have learned. `rank` then only ranks what the
 characters of one realm and faction can craft (chains may use any of their recipes, whoever knows them).
 
-The web UI is a React app (`frontend/`) served by a local FastAPI server (`wowprofit ui`); build
+The web UI is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit ui`); build
 it once with `npm run build` in `frontend/`. It has two tabs:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft, and names who
@@ -63,7 +63,7 @@ the previous realm's.
 
 ### Front-end development
 
-Run `npm run dev` in the repo root. It starts the Python API on :8600 (`wowprofit ui --no-browser`,
+Run `npm run dev` in the repo root. It starts the Python API on :8600 (`altarmy-profit ui --no-browser`,
 via the venv), waits for it, then starts Vite and opens http://localhost:5173. Vite hot-reloads the
 React code and proxies `/api` to the Python server; press Ctrl+C and rerun for Python changes. After changing the API's models or routes, regenerate the
 TypeScript types with `python scripts/export_openapi.py` and `npm run gen-types` (`check.py` does both).
@@ -78,36 +78,36 @@ Coarse Thread,120
 
 ## Data notes
 
-- Pinned build: see `DEFAULT_BUILD` in `src/wowprofit/ingest.py`. Pass `--build <version>` or `--build latest`
+- Pinned build: see `DEFAULT_BUILD` in `src/altarmy_profit/ingest.py`. Pass `--build <version>` or `--build latest`
   for a newer one. The build actually loaded is stored in the `meta` table.
 - **Disenchant results are not in DB2** (they are server-side loot tables). `data/disenchant.csv`
   (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds Classic-era
   rates, derived from the brackets Auctionator uses for Classic clients. Counts within a row are
   assumed uniform. Coverage: greens ilvl 5–65, blues 11–65, epics 40–80; items outside those
   ranges get no disenchant value. Forever-specific rates are not yet published — verify against
-  Wowhead's Forever database as data comes in, then re-run `wowprofit ingest`.
+  Wowhead's Forever database as data comes in, then re-run `altarmy-profit ingest`.
 - **Vendor-sold items are not in DB2** (vendor inventories are server-side). `data/vendor_items.csv`
   (`item_id,name`) lists the items vanilla vendors sell with unlimited stock and no reputation or event
   condition, taken from [vmangos](https://github.com/vmangos/core)' world database by
   `python scripts/build_vendor_items.py`. The price is DB2's `BuyPrice` per `VendorStackCount`, rounded up
   to whole copper. Reagents are bought from whichever of vendor and AH is cheaper. Forever may differ from
-  vanilla; edit the CSV and re-run `wowprofit ingest` if a vendor item is missing or wrong.
+  vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor item is missing or wrong.
 - Recipe output count is derived from `SpellEffect.EffectBasePointsF`; verify against known recipes.
 
 ## Layout
 
-- `src/wowprofit/ingest.py` – download + load DB2 CSVs
-- `src/wowprofit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
-- `src/wowprofit/prices.py` – price sources (CSV, Auctionator SavedVariables via `auctionator.py`)
-- `src/wowprofit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
-- `src/wowprofit/store.py` – load SQLite into engine dataclasses
-- `src/wowprofit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
-- `src/wowprofit/cli.py` – command line
+- `src/altarmy_profit/ingest.py` – download + load DB2 CSVs
+- `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
+- `src/altarmy_profit/prices.py` – price sources (CSV, Auctionator SavedVariables via `auctionator.py`)
+- `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
+- `src/altarmy_profit/store.py` – load SQLite into engine dataclasses
+- `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
+- `src/altarmy_profit/cli.py` – command line
 - `frontend/` – Vite + React + TypeScript + Mantine web UI
 
 ## Roadmap
 
 1. Verify ingest against known recipes on a real build.
-2. ~~Auctionator SavedVariables importer~~ (done: `wowprofit import-auctionator`).
-3. ~~Web UI~~ (done: `wowprofit ui`, React + FastAPI). Next: filter by skill level, which needs real required-skill data.
+2. ~~Auctionator SavedVariables importer~~ (done: `altarmy-profit import-auctionator`).
+3. ~~Web UI~~ (done: `altarmy-profit ui`, React + FastAPI). Next: filter by skill level, which needs real required-skill data.
 4. Recipe availability (who learns what / trainer vs. drop), auction volume and price-history risk.

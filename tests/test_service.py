@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from wowprofit import altarmy, db, ingest, prices, service, store
-from wowprofit.altarmy import Character, Profession
-from wowprofit.engine import ALL_EXITS, Filters
-from wowprofit.service import Selection, SyncResult
+from altarmy_profit import altarmy, db, ingest, prices, service, store
+from altarmy_profit.altarmy import Character, Profession
+from altarmy_profit.engine import ALL_EXITS, Filters
+from altarmy_profit.service import Selection, SyncResult
 
 from .conftest import SV_DIR
 from .test_altarmy import ALTARMY_SV

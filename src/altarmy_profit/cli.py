@@ -106,12 +106,12 @@ def cmd_ui(args: argparse.Namespace) -> None:
     url = f"http://{args.host}:{args.port}"
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, [url]).start()
-    print(f"wow-profit UI on {url} (Ctrl+C to stop)")
+    print(f"altarmy-profit UI on {url} (Ctrl+C to stop)")
     uvicorn.run(create_app(Path(args.db).resolve()), host=args.host, port=args.port)
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="wowprofit")
+    p = argparse.ArgumentParser(prog="altarmy-profit")
     p.add_argument("--db", default=str(db.DEFAULT_DB))
     sub = p.add_subparsers(dest="cmd", required=True)
 

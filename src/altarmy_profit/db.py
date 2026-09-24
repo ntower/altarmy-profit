@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB = Path("data/wowprofit.db")
+DEFAULT_DB = Path("data/altarmy-profit.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (

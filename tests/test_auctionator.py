@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from wowprofit import auctionator, cli, ingest, prices
+from altarmy_profit import auctionator, cli, ingest, prices
 
 
 def _cbor_head(major: int, n: int) -> bytes:

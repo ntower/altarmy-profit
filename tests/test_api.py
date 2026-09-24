@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from wowprofit import altarmy, db, ingest, prices, service, store
-from wowprofit.altarmy import Character, Profession
-from wowprofit.api import create_app
+from altarmy_profit import altarmy, db, ingest, prices, service, store
+from altarmy_profit.altarmy import Character, Profession
+from altarmy_profit.api import create_app
 
 from .conftest import SV_DIR
 from .test_altarmy import ALTARMY_SV
@@ -405,9 +405,9 @@ def test_reload_rereads_database(client: TestClient, priced: sqlite3.Connection)
 def test_serves_built_frontend(tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
-    (dist / "index.html").write_text("<html>wow-profit</html>")
+    (dist / "index.html").write_text("<html>altarmy-profit</html>")
     client = TestClient(create_app(tmp_path / "test.db", static_dir=dist, wow_roots=()))
-    assert "wow-profit" in client.get("/").text
+    assert "altarmy-profit" in client.get("/").text
     assert client.get("/api/status").json()["recipes"] == 0
 
 

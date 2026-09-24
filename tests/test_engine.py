@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 
-from wowprofit.engine import (
+from altarmy_profit.engine import (
     ALL_EXITS,
     MAIL_POSTAGE,
     Crafter,

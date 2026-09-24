@@ -1,7 +1,7 @@
 import pytest
 
-from wowprofit import altarmy
-from wowprofit.altarmy import Character, Profession
+from altarmy_profit import altarmy
+from altarmy_profit.altarmy import Character, Profession
 
 # Trimmed from a real AltArmy_TBC.lua (addon 2.1.1): no indentation, one statement per global.
 ALTARMY_SV = b"""

@@ -11,7 +11,7 @@ if (!python) {
   process.exit(1)
 }
 
-const child = spawn(python, ['-m', 'wowprofit.cli', 'ui', '--no-browser', ...process.argv.slice(2)], {
+const child = spawn(python, ['-m', 'altarmy_profit.cli', 'ui', '--no-browser', ...process.argv.slice(2)], {
   cwd: root,
   stdio: 'inherit',
 })

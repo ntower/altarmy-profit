@@ -30,7 +30,7 @@ MAX_REAGENTS = 8
 
 
 def _fetch(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "wowprofit/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "altarmy-profit/0.1"})
     with urllib.request.urlopen(req, timeout=120) as resp:
         data: bytes = resp.read()
     return data

@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from wowprofit import db
+from altarmy_profit import db
 
 
 def test_init_schema_adds_new_item_columns_to_an_old_database(tmp_path: Path) -> None:

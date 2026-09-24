@@ -6,7 +6,7 @@ Usage: python scripts/export_openapi.py
 import json
 from pathlib import Path
 
-from wowprofit.api import create_app
+from altarmy_profit.api import create_app
 
 OUT = Path(__file__).resolve().parents[1] / "frontend" / "openapi.json"
 

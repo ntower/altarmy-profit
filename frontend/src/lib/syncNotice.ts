@@ -11,7 +11,7 @@ const seenSchema = z.object({
 export type SyncSeen = z.infer<typeof seenSchema>
 
 /** In localStorage, so an import that happened while the page was closed still gets announced once. */
-export const SYNC_SEEN_KEY = 'wowprofit.syncSeen'
+export const SYNC_SEEN_KEY = 'altarmy-profit.syncSeen'
 
 export function syncSeen(s: Status): SyncSeen {
   return {

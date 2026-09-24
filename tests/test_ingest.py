@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from wowprofit import db, ingest
+from altarmy_profit import db, ingest
 
 from .conftest import write_csv
 

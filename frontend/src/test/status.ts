@@ -2,7 +2,7 @@ import type { Characters, Status } from '../api/client'
 
 /** A synced status: game data, prices, and Alt Army characters with Classic Beta PvE (Horde) selected. */
 export const status = (over: Partial<Status> = {}): Status => ({
-  db_path: 'data/wowprofit.db',
+  db_path: 'data/altarmy-profit.db',
   build: '1.60.1.69913',
   items: 3,
   recipes: 1,

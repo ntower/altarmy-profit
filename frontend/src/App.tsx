@@ -9,7 +9,7 @@ export function App() {
   return (
     <Container size="xl" py="md">
       <Title order={1} mb="md">
-        wow-profit
+        altarmy-profit
       </Title>
       <Tabs defaultValue="search">
         <Tabs.List mb="md">

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from wowprofit import db
+from altarmy_profit import db
 
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables

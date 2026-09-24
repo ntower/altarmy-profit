@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from wowprofit.engine import DISENCHANTABLE_CLASSES, DISENCHANTABLE_QUALITIES, DisenchantRow, Item, Market
+from altarmy_profit.engine import (
+    DISENCHANTABLE_CLASSES,
+    DISENCHANTABLE_QUALITIES,
+    DisenchantRow,
+    Item,
+    Market,
+)
 
 TABLE = Path(__file__).resolve().parents[1] / "data" / "disenchant.csv"
 

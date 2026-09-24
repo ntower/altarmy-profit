@@ -1,6 +1,6 @@
 import pytest
 
-from wowprofit import luasv
+from altarmy_profit import luasv
 
 
 def test_parses_top_level_assignments_and_scalars() -> None:
