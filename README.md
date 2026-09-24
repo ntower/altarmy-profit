@@ -104,6 +104,7 @@ Coarse Thread,120
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/altarmy_profit/cli.py` – command line
 - `frontend/` – Vite + React + TypeScript + Mantine web UI
+- `docs/` – plans: `HOSTED_PLAN.md` (hosted, multi-user transition), `ROADMAP_IDEAS.md` (feature ideas)
 
 ## Roadmap
 
@@ -111,3 +112,4 @@ Coarse Thread,120
 2. ~~Auctionator SavedVariables importer~~ (done: `altarmy-profit import-auctionator`).
 3. ~~Web UI~~ (done: `altarmy-profit ui`, React + FastAPI). Next: filter by skill level, which needs real required-skill data.
 4. Recipe availability (who learns what / trainer vs. drop), auction volume and price-history risk.
+5. Hosted, multi-user app for TBC Anniversary and Forever: see [docs/HOSTED_PLAN.md](docs/HOSTED_PLAN.md).
