@@ -129,7 +129,14 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
                 "TrivialSkillLineRankHigh",
             ],
             [
-                {"ID": 100, "SkillLine": 197, "Spell": 900, "MinSkillLineRank": 25},
+                {
+                    "ID": 100,
+                    "SkillLine": 197,
+                    "Spell": 900,
+                    "MinSkillLineRank": 25,
+                    "TrivialSkillLineRankLow": 30,
+                    "TrivialSkillLineRankHigh": 60,
+                },
                 # no reagents/effect -> must be skipped
                 {"ID": 101, "SkillLine": 197, "Spell": 901},
                 # not a known skill line -> must be skipped

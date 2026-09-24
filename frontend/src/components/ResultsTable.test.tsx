@@ -249,6 +249,7 @@ describe('ResultsTable', () => {
       expect(order()).toEqual(['Axe', 'Bolt', 'Cape'])
       await sortBy('Sell via')
       expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
+      expect(screen.getByText('auction')).toBeInTheDocument()
       expect(header('Recipe')).toHaveAttribute('aria-sort', 'none')
     })
 
@@ -320,6 +321,7 @@ describe('ResultsTable', () => {
       expect(await request.json()).toEqual({
         recipe_id: 100,
         include_unlearned: false,
+        include_trivial: true,
         exits: ['vendor', 'ah', 'disenchant'],
         choices: { 'r.1': 'ah' },
       })

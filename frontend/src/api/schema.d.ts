@@ -310,6 +310,11 @@ export interface components {
              */
             exits: ("vendor" | "ah" | "disenchant")[];
             /**
+             * Include Trivial
+             * @default true
+             */
+            include_trivial: boolean;
+            /**
              * Include Unlearned
              * @default false
              */
@@ -871,6 +876,8 @@ export interface operations {
             query?: {
                 /** @description rank every recipe of the characters' professions, not just learned ones */
                 include_unlearned?: boolean;
+                /** @description also recipes that can't give the crafter a skillup (grey or at the cap) */
+                include_trivial?: boolean;
                 /** @description ways the crafts may be sold */
                 exits?: ("vendor" | "ah" | "disenchant")[];
                 /** @description copper */

@@ -200,6 +200,7 @@ class EvaluateRequest(BaseModel):
 
     recipe_id: int
     include_unlearned: bool = False
+    include_trivial: bool = True  # False: only a crafter it can give a skillup does the final craft
     exits: list[ExitKind] = list(ALL_EXIT_KINDS)
     # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
     choices: dict[str, str]
@@ -424,6 +425,9 @@ def get_rank(
     include_unlearned: Annotated[
         bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
     ] = False,
+    include_trivial: Annotated[
+        bool, Query(description="also recipes that can't give the crafter a skillup (grey or at the cap)")
+    ] = True,
     exits: Annotated[Sequence[ExitKind], Query(description="ways the crafts may be sold")] = ALL_EXIT_KINDS,
     min_cost: Annotated[int | None, Query(description="copper")] = None,
     max_cost: Annotated[int | None, Query(description="copper")] = None,
@@ -441,7 +445,9 @@ def get_rank(
         _, chars = service.selected_characters(conn)
         no_ah = _no_ah(conn)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
-    matches = service.search(base, chars, include_unlearned, filters, frozenset(exits), no_ah)
+    matches = service.search(
+        base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
+    )
     results = matches[:top]
     crafters = altarmy.crafters(chars)
     return RankResponse(
@@ -461,7 +467,14 @@ def evaluate(request: Request, body: EvaluateRequest) -> EvaluateResponse:
         _, chars = service.selected_characters(conn)
         no_ah = _no_ah(conn)
     r = service.evaluate(
-        base, chars, body.include_unlearned, frozenset(body.exits), body.recipe_id, body.choices, no_ah
+        base,
+        chars,
+        body.include_unlearned,
+        frozenset(body.exits),
+        body.recipe_id,
+        body.choices,
+        no_ah,
+        body.include_trivial,
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")

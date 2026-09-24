@@ -76,7 +76,9 @@ def cmd_rank(args: argparse.Namespace) -> None:
         print(f"{sel.realm} ({sel.faction}). Characters: {', '.join(c.name for c in chars)}")
         no_ah = frozenset(i for i, _ in store.load_ah_blocked(conn))
         filters = Filters(min_profit=args.min_profit)
-        results = service.search(market, chars, args.include_unlearned, filters, no_ah=no_ah)
+        results = service.search(
+            market, chars, args.include_unlearned, filters, no_ah=no_ah, include_trivial=not args.no_trivial
+        )
         if args.skill:
             results = [r for r in results if r.recipe.skill_name.lower() == args.skill.lower()]
     results = results[: args.top]
@@ -152,6 +154,9 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--faction", help="Horde or Alliance")
     s.add_argument(
         "--include-unlearned", action="store_true", help="also recipes of their professions not yet learned"
+    )
+    s.add_argument(
+        "--no-trivial", action="store_true", help="only recipes that can give the crafter a skillup"
     )
     s.set_defaults(fn=cmd_rank)
 

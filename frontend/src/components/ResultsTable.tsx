@@ -11,6 +11,9 @@ import { RecipeFlow, type FlowEditing } from './RecipeFlow'
 import classes from './ResultsTable.module.css'
 
 const COLUMNS = ['', 'Profit', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Cost', 'Revenue', 'Sell via']
+/** Sell via column text per exit; unknown exits show as-is. */
+const EXIT_LABELS: Readonly<Record<string, string>> = { ah: 'auction' }
+const exitLabel = (exit: string): string => EXIT_LABELS[exit] ?? exit
 /** Sort key per sortable column; numbers sort largest first on the first click, text alphabetically. */
 const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = {
   Profit: (r) => r.profit,
@@ -20,7 +23,7 @@ const SORT_KEYS: Readonly<Record<string, (r: RankResult) => number | string>> = 
   Crafter: (r) => (r.crafters.length ? r.crafter : ''),
   Cost: (r) => r.cost,
   Revenue: (r) => r.revenue,
-  'Sell via': (r) => r.best_exit,
+  'Sell via': (r) => exitLabel(r.best_exit),
 }
 const NUMERIC_COLUMNS: ReadonlySet<string> = new Set(['Profit', 'ROI', 'Cost', 'Revenue'])
 /** Money columns: fixed width, room for -99g 99s 99c on one line (larger amounts drop copper, then silver). */
@@ -170,7 +173,11 @@ function Details({ result, items, editing }: { result: RankResult; items: ItemMa
   )
 }
 
-const DEFAULT_PARAMS: EvaluateParams = { includeUnlearned: false, exits: ['vendor', 'ah', 'disenchant'] }
+const DEFAULT_PARAMS: EvaluateParams = {
+  includeUnlearned: false,
+  includeTrivial: true,
+  exits: ['vendor', 'ah', 'disenchant'],
+}
 
 const NONE: ReadonlySet<number> = new Set()
 
@@ -362,7 +369,7 @@ export function ResultsTable({
                     <Table.Td c="teal" ff="monospace" ta="right">
                       <Money copper={r.revenue} padded />
                     </Table.Td>
-                    <Table.Td>{r.best_exit}</Table.Td>
+                    <Table.Td>{exitLabel(r.best_exit)}</Table.Td>
                     {onSetAhBlocked && (
                       // Menu clicks (in its portal too) bubble here in React, not to the row.
                       <Table.Td onClick={(e) => e.stopPropagation()}>

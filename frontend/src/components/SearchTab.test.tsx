@@ -38,6 +38,7 @@ describe('SearchTab', () => {
 
   it("shows the selected realm's characters and ranks with the stored parameters", async () => {
     localStorage.setItem('altarmy-profit.search.includeUnlearned', 'true')
+    localStorage.setItem('altarmy-profit.search.includeTrivial', 'false')
     localStorage.setItem('altarmy-profit.search.open', JSON.stringify(['advanced', 'characters']))
     localStorage.setItem('altarmy-profit.search.exits', JSON.stringify(['ah', 'vendor']))
     localStorage.setItem('altarmy-profit.search.minCost', JSON.stringify(0.5))
@@ -53,6 +54,7 @@ describe('SearchTab', () => {
     expect(screen.getByRole('checkbox', { name: 'Auction house' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toBeChecked()
     expect(screen.getByRole('switch', { name: /Include recipes not learned yet/ })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: /Include Trivial Recipes/ })).not.toBeChecked()
     expect(await screen.findByText('Tailor Guy')).toBeInTheDocument() // characters load after the status
     expect(screen.getByText(/Cooking 1\/75, Tailoring 50\/75/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Characters (1)' })).toBeInTheDocument()
@@ -60,7 +62,7 @@ describe('SearchTab', () => {
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'include_unlearned=true&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50',
+      'include_unlearned=true&include_trivial=false&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50',
     )
   })
 
@@ -134,6 +136,8 @@ describe('SearchTab', () => {
     }
     const unlearned = screen.getByRole('switch', { name: /Include recipes not learned yet/ })
     expect(unlearned).not.toBeChecked()
+    const trivial = screen.getByRole('checkbox', { name: /Include Trivial Recipes/, hidden: true })
+    expect(trivial).toBeChecked()
     fireEvent.change(maxProfit, { target: { value: '40' } })
     expect(localStorage.getItem('altarmy-profit.search.maxProfit')).toBe('40')
     fireEvent.change(maxProfit, { target: { value: '' } })
@@ -142,5 +146,7 @@ describe('SearchTab', () => {
     expect(localStorage.getItem('altarmy-profit.search.exits')).toBe('["vendor","ah"]')
     fireEvent.click(unlearned)
     expect(localStorage.getItem('altarmy-profit.search.includeUnlearned')).toBe('true')
+    fireEvent.click(trivial)
+    expect(localStorage.getItem('altarmy-profit.search.includeTrivial')).toBe('false')
   })
 })

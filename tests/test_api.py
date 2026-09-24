@@ -318,6 +318,19 @@ def test_rank_include_unlearned(client: TestClient, priced: sqlite3.Connection) 
     assert (r["recipe"], r["crafters"]) == ("Green Robe", [])
 
 
+def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: sqlite3.Connection) -> None:
+    veteran = Character(
+        "Realm", "Veteran", "Horde", "MAGE", 60, (Profession("Tailoring", 60, 150, frozenset({900})),)
+    )
+    store.save_characters(priced, [veteran])  # the robe is grey from 60
+    (r,) = client.get("/api/rank").json()["results"]
+    grey = client.get("/api/rank", params={"include_trivial": False}).json()
+    assert (grey["results"], grey["total"]) == ([], 0)
+    body = {"recipe_id": r["recipe_id"], "choices": {}}
+    assert client.post("/api/evaluate", json=body).status_code == 200
+    assert client.post("/api/evaluate", json={**body, "include_trivial": False}).status_code == 404
+
+
 def test_status_syncs_addon_files_and_selection_switches_realm(
     client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, wow_root: Path
 ) -> None:

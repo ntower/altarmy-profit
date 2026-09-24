@@ -68,6 +68,8 @@ def load_market(conn: sqlite3.Connection) -> Market:
             r["skill_name"],
             r["min_skill"],
             r["spell_id"],
+            r["trivial_low"],
+            r["trivial_high"],
         )
         for r in conn.execute("SELECT * FROM recipes")
     ]

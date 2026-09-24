@@ -80,7 +80,12 @@ function Results({ filters }: { filters: Filters }) {
         results={results}
         items={rank.data.items}
         classes={rank.data.classes}
-        params={{ includeUnlearned: filters.includeUnlearned, exits: filters.exits, version }}
+        params={{
+          includeUnlearned: filters.includeUnlearned,
+          includeTrivial: filters.includeTrivial,
+          exits: filters.exits,
+          version,
+        }}
         ahBlocked={ahBlocked}
         onSetAhBlocked={(itemId, blocked) => setAhBlocked({ itemId, blocked })}
       />
@@ -161,6 +166,11 @@ export function SearchTab() {
     z.boolean(),
     false,
   )
+  const [includeTrivial, setIncludeTrivial] = useStoredState(
+    'altarmy-profit.search.includeTrivial',
+    z.boolean(),
+    true,
+  )
   const [open, setOpen] = useStoredState('altarmy-profit.search.open', z.array(z.enum(SECTIONS)), NONE_OPEN)
   const [exits, setExits] = useStoredState('altarmy-profit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
   // Money in gold and ROI in percent, as typed; converted for the API below.
@@ -174,6 +184,7 @@ export function SearchTab() {
   const filters = useMemo<Filters>(
     () => ({
       includeUnlearned,
+      includeTrivial,
       exits: ALL_EXITS.filter((e) => exits.includes(e)),
       minCost: scaled(minCost, goldToCopper),
       maxCost: scaled(maxCost, goldToCopper),
@@ -182,7 +193,7 @@ export function SearchTab() {
       minRoi: scaled(minRoi, (p) => p / 100),
       maxRoi: scaled(maxRoi, (p) => p / 100),
     }),
-    [includeUnlearned, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi],
+    [includeUnlearned, includeTrivial, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi],
   )
   const [debouncedFilters] = useDebouncedValue(filters, 300)
 
@@ -240,6 +251,12 @@ export function SearchTab() {
           <Accordion.Control>Advanced Options</Accordion.Control>
           <Accordion.Panel>
             <Stack>
+              <Checkbox
+                label="Include Trivial Recipes"
+                description="Uncheck to show only recipes that can still give the crafter a skill point."
+                checked={includeTrivial}
+                onChange={(e) => setIncludeTrivial(e.currentTarget.checked)}
+              />
               <Checkbox.Group
                 label="Sell via"
                 value={exits}

@@ -51,23 +51,40 @@ class Recipe:
     skill_name: str = ""
     min_skill: int = 0
     spell_id: int = 0  # the craft spell; Alt Army's recipe ids
+    trivial_low: int = 0  # skill where it turns yellow; 0 if unknown
+    trivial_high: int = 0  # skill where it turns grey (no more skillups); 0 if unknown
 
 
 @dataclass(frozen=True)
 class Crafter:
-    """One character who may craft or disenchant: their (profession, rank) pairs and learned craft spells."""
+    """One character who may craft or disenchant: their (profession, rank, max rank) triples and learned
+    craft spells."""
 
     name: str
-    professions: tuple[tuple[str, int], ...]
+    professions: tuple[tuple[str, int, int], ...]
     known_spells: frozenset[int]
 
     def has(self, profession: str) -> bool:
-        return any(p.lower() == profession.lower() for p, _ in self.professions)
+        return self.skill(profession) is not None
+
+    def skill(self, profession: str) -> tuple[int, int] | None:
+        """Their (rank, max rank) in `profession`; None if they don't have it."""
+        return next(((r, m) for p, r, m in self.professions if p.lower() == profession.lower()), None)
 
     @property
     def enchanting(self) -> int:
         """Enchanting skill; 0 if they don't have it."""
-        return max((r for p, r in self.professions if p.lower() == "enchanting"), default=0)
+        skill = self.skill("enchanting")
+        return skill[0] if skill else 0
+
+
+def can_skill_up(recipe: Recipe, crafter: Crafter) -> bool:
+    """Whether crafting `recipe` can raise `crafter`'s skill: it isn't grey for them and they aren't at their
+    profession's cap. Recipes without skill thresholds count as able to."""
+    if not recipe.trivial_high:
+        return True
+    skill = crafter.skill(recipe.skill_name)
+    return skill is not None and skill[0] < recipe.trivial_high and skill[0] < skill[1]
 
 
 @dataclass(frozen=True)
@@ -238,11 +255,13 @@ class Market:
         include_unlearned: bool = False,
         exits: frozenset[str] = ALL_EXITS,
         no_ah: frozenset[int] = frozenset(),
+        include_trivial: bool = True,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
         profession craft it when nobody has learned it. Crafts are only sold via `exits`, and items in
-        `no_ah` never on the AH (they may still be bought there)."""
+        `no_ah` never on the AH (they may still be bought there). Without `include_trivial` the final craft
+        is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
@@ -252,6 +271,7 @@ class Market:
         self.include_unlearned = include_unlearned
         self.exits = exits
         self.no_ah = no_ah
+        self.include_trivial = include_trivial
         self._by_output: dict[int, list[Recipe]] = {}
         for r in recipes:
             self._by_output.setdefault(r.output_item_id, []).append(r)
@@ -350,6 +370,15 @@ class Market:
         if not self.crafters:
             return [""]  # one unnamed character who does everything
         return [c.name for c in crafters_of(recipe, self.crafters, self.include_unlearned)]
+
+    def _final_crafters(self, recipe: Recipe) -> list[str]:
+        """Who may do `recipe`'s final craft: anyone who can craft it, or without `include_trivial` only
+        those it can give a skillup (everyone if no characters are known)."""
+        who = self._who(recipe)
+        if self.include_trivial or not self.crafters:
+            return who
+        by_name = {c.name: c for c in self.crafters}
+        return [w for w in who if can_skill_up(recipe, by_name[w])]
 
     def _who(self, recipe: Recipe) -> list[str]:
         """Who can craft `recipe`."""
@@ -504,7 +533,7 @@ class Market:
             return None
         memo: Memo = {}
         by_exit: dict[str, Result] = {}  # the most profitable result for each way of selling
-        for who in self._who(recipe):
+        for who in self._final_crafters(recipe):
             tree = self._craft(recipe, recipe.output_count, 1, who, 0, frozenset(), memo, ROOT, choices)
             here = self._exits_at(exits, who)
             if tree is None or not here:

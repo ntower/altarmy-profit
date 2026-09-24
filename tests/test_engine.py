@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from dataclasses import replace
 
 from altarmy_profit.engine import (
     ALL_EXITS,
@@ -16,6 +17,7 @@ from altarmy_profit.engine import (
     SellOption,
     Step,
     ah_net,
+    can_skill_up,
     recipes_for_characters,
     recipes_for_professions,
 )
@@ -324,7 +326,8 @@ DE_PRICES = {LINEN: 20, THREAD: 100, DUST: 1000}  # dust nets 950, beating the 5
 
 
 def crafter(name: str, *professions: tuple[str, int], known: frozenset[int] = frozenset()) -> Crafter:
-    return Crafter(name, professions, known)
+    """A crafter with (profession, rank) pairs, each capped at 375."""
+    return Crafter(name, tuple((p, rank, 375) for p, rank in professions), known)
 
 
 TAILOR = crafter("Tailor", ("Tailoring", 50), known=frozenset({900}))
@@ -410,7 +413,12 @@ LEATHERY = crafter("Leathery", ("Leatherworking", 50), known=frozenset({950}))
 BOTH = crafter("Both", ("Blacksmithing", 50), ("Leatherworking", 50), known=frozenset({950, 951}))
 
 
-def maul_market(*crafters: Crafter, leather_price: int = 100) -> Market:
+def maul_market(
+    *crafters: Crafter,
+    leather_price: int = 100,
+    recipes: Sequence[Recipe] = (CURE, MAUL_RECIPE),
+    include_trivial: bool = True,
+) -> Market:
     items = {
         SCRAPS: Item(SCRAPS, "Ruined Leather Scraps", stack_size=20),
         LEATHER: Item(LEATHER, "Light Leather", stack_size=20),
@@ -418,7 +426,7 @@ def maul_market(*crafters: Crafter, leather_price: int = 100) -> Market:
         COPPER: Item(COPPER, "Copper Bar", stack_size=20),
     }
     prices = {SCRAPS: 5, LEATHER: leather_price, COPPER: 10}
-    return Market(items, [CURE, MAUL_RECIPE], prices, crafters=crafters)
+    return Market(items, list(recipes), prices, crafters=crafters, include_trivial=include_trivial)
 
 
 def test_intermediate_is_crafted_by_another_character_and_mailed() -> None:
@@ -526,3 +534,46 @@ def test_choosing_an_exit_sells_that_way() -> None:
     assert res is not None
     assert (res.best_exit, res.profit, res.mail_to) == ("vendor", 200, "")
     assert res.sell_options == must_evaluate(m, ROBE).sell_options
+
+
+# --- skillups -----------------------------------------------------------------------------------------
+def test_can_skill_up_below_grey_and_under_the_cap() -> None:
+    recipe = Recipe(
+        1, "Rough Sharpening Stone", 1, skill_name="Blacksmithing", trivial_low=15, trivial_high=55
+    )
+
+    def smith(rank: int, cap: int = 75) -> Crafter:
+        return Crafter("Smith", (("Blacksmithing", rank, cap),), frozenset())
+
+    assert can_skill_up(recipe, smith(1))  # orange
+    assert can_skill_up(recipe, smith(20))  # yellow
+    assert can_skill_up(recipe, smith(54))  # green
+    assert not can_skill_up(recipe, smith(55))  # grey
+    assert not can_skill_up(recipe, smith(40, cap=40))  # must train first
+    assert not can_skill_up(recipe, crafter("Tailor", ("Tailoring", 1)))  # not their profession
+    assert can_skill_up(replace(recipe, trivial_low=0, trivial_high=0), smith(300, cap=300))  # unknown
+
+
+GREY_AT_60 = replace(MAUL_RECIPE, trivial_low=40, trivial_high=60)
+VETERAN = crafter("Veteran", ("Blacksmithing", 75), ("Leatherworking", 50), known=frozenset({950, 951}))
+
+
+def test_without_trivial_recipes_only_a_crafter_who_skills_up_makes_it() -> None:
+    both = maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60))
+    assert must_evaluate(both, GREY_AT_60).crafter == "Veteran"  # no mail: most profitable
+    skillups = maul_market(SMITHY, LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60), include_trivial=False)
+    res = must_evaluate(skillups, GREY_AT_60)
+    assert res.crafter == "Smithy"
+    # the grey sub-craft of Light Leather still happens
+    assert res.tree.inputs[0].crafter in ("Leathery", "Veteran")
+
+
+def test_without_trivial_recipes_one_grey_for_everyone_is_dropped() -> None:
+    m = maul_market(LEATHERY, VETERAN, recipes=(CURE, GREY_AT_60), include_trivial=False)
+    assert m.evaluate(GREY_AT_60) is None
+    assert GREY_AT_60 not in [r.recipe for r in m.rank(min_profit=-(10**9))]
+
+
+def test_without_characters_trivial_recipes_are_kept() -> None:
+    m = maul_market(recipes=(CURE, GREY_AT_60), include_trivial=False)
+    assert must_evaluate(m, GREY_AT_60).crafter == ""

@@ -42,6 +42,7 @@ def test_load_market_keeps_spell_ids(db2_paths: dict[str, Path], conn: sqlite3.C
     ingest.build_db(db2_paths, conn)
     (recipe,) = store.load_market(conn).recipes
     assert recipe.spell_id == 900
+    assert (recipe.trivial_low, recipe.trivial_high) == (30, 60)
 
 
 def test_characters_round_trip_and_replace(conn: sqlite3.Connection) -> None:

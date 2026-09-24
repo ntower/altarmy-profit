@@ -38,6 +38,8 @@ export type Exit = 'vendor' | 'disenchant' | 'ah'
 /** `/api/rank` parameters: money in copper, ROI as a fraction (0.5 = 50%), `null` for no bound. */
 export type RankParams = {
   includeUnlearned: boolean
+  /** false: only recipes that can give the crafter a skillup */
+  includeTrivial: boolean
   exits: Exit[]
   minCost: number | null
   maxCost: number | null
@@ -61,6 +63,7 @@ export function useRank(params: RankParams) {
           params: {
             query: {
               include_unlearned: params.includeUnlearned,
+              include_trivial: params.includeTrivial,
               exits: params.exits,
               min_cost: orUndefined(params.minCost),
               max_cost: orUndefined(params.maxCost),
@@ -80,7 +83,7 @@ export function useRank(params: RankParams) {
 
 /** What `/api/evaluate` needs besides the choices: the search's settings, and the data version its results
  * came from (so a sync re-costs the user's changed plans too). */
-export type EvaluateParams = Pick<RankParams, 'includeUnlearned' | 'exits'> & { version?: number }
+export type EvaluateParams = Pick<RankParams, 'includeUnlearned' | 'includeTrivial' | 'exits'> & { version?: number }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -88,16 +91,22 @@ export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: E
  * previous evaluation stays in `data`. */
 export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
-  { includeUnlearned, exits, version }: EvaluateParams,
+  { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
   const ids = Object.keys(choices).map(Number)
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', version, id, includeUnlearned, exits, choices[id]],
+      queryKey: ['evaluate', version, id, includeUnlearned, includeTrivial, exits, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
-            body: { recipe_id: id, include_unlearned: includeUnlearned, exits, choices: choices[id] ?? {} },
+            body: {
+              recipe_id: id,
+              include_unlearned: includeUnlearned,
+              include_trivial: includeTrivial,
+              exits,
+              choices: choices[id] ?? {},
+            },
           }),
         ),
       // Observers are matched by position, so only keep data that belongs to the same recipe.

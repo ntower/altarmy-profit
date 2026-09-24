@@ -59,6 +59,26 @@ def test_search_ranks_known_recipes_or_whole_professions(
     assert [r.recipe.name for r in unlearned] == ["Green Robe"]
 
 
+def test_search_and_evaluate_without_trivial_recipes(
+    db2_paths: dict[str, Path], conn: sqlite3.Connection
+) -> None:
+    ingest.build_db(db2_paths, conn)
+    prices.set_price(conn, 1, 20)
+    prices.set_price(conn, 2, 100)
+    conn.commit()
+    base = store.load_market(conn)
+    (tailor,) = chars("Tailor Guy")  # Tailoring 50: the robe turns grey at 60
+    (robe,) = base.recipes
+    profitable = Filters(min_profit=0)
+    assert len(service.search(base, [tailor], False, profitable, include_trivial=False)) == 1
+
+    (p,) = [p for p in tailor.professions if p.name == "Tailoring"]
+    veteran = replace(tailor, professions=(replace(p, rank=60, max_rank=150),))
+    assert len(service.search(base, [veteran], False, profitable)) == 1
+    assert service.search(base, [veteran], False, profitable, include_trivial=False) == []
+    assert service.evaluate(base, [veteran], False, ALL_EXITS, robe.id, {}, include_trivial=False) is None
+
+
 def test_evaluate_applies_choices(
     db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
 ) -> None:

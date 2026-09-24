@@ -129,6 +129,11 @@
             "title": "Exits",
             "type": "array"
           },
+          "include_trivial": {
+            "default": true,
+            "title": "Include Trivial",
+            "type": "boolean"
+          },
           "include_unlearned": {
             "default": false,
             "title": "Include Unlearned",
@@ -1362,6 +1367,18 @@
               "default": false,
               "description": "rank every recipe of the characters' professions, not just learned ones",
               "title": "Include Unlearned",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "also recipes that can't give the crafter a skillup (grey or at the cap)",
+            "in": "query",
+            "name": "include_trivial",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "also recipes that can't give the crafter a skillup (grey or at the cap)",
+              "title": "Include Trivial",
               "type": "boolean"
             }
           },
