@@ -187,7 +187,15 @@ export function DisenchantHover({
 }
 
 /** Hover `children` to show `tooltip` beside it. */
-export function Hover({ tooltip, children }: { tooltip: ReactNode; children: ReactNode }) {
+export function Hover({
+  tooltip,
+  children,
+  truncate = false,
+}: {
+  tooltip: ReactNode
+  children: ReactNode
+  truncate?: boolean
+}) {
   return (
     <HoverCard
       openDelay={0}
@@ -198,7 +206,9 @@ export function Hover({ tooltip, children }: { tooltip: ReactNode; children: Rea
       withinPortal
     >
       <HoverCard.Target>
-        <span className={classes.target}>{children}</span>
+        <span className={classes.target} data-truncate={truncate || undefined}>
+          {children}
+        </span>
       </HoverCard.Target>
       <HoverCard.Dropdown className={classes.dropdown}>{tooltip}</HoverCard.Dropdown>
     </HoverCard>
@@ -206,14 +216,23 @@ export function Hover({ tooltip, children }: { tooltip: ReactNode; children: Rea
 }
 
 /** An item name in its quality colour with a small icon; hover for the tooltip. `name` is the fallback
- * when the item has no details (e.g. a database from before tooltips were ingested). */
-export function ItemLink({ item, name }: { item: ItemInfo | undefined; name?: string }) {
-  if (!item) return <>{name}</>
+ * when the item has no details (e.g. a database from before tooltips were ingested). With `truncate`, a
+ * name too long for its (flex) container ends in an ellipsis instead of overflowing. */
+export function ItemLink({
+  item,
+  name,
+  truncate = false,
+}: {
+  item: ItemInfo | undefined
+  name?: string
+  truncate?: boolean
+}) {
+  if (!item) return truncate ? <span className={classes.plainName}>{name}</span> : <>{name}</>
   return (
-    <Hover tooltip={<ItemTooltip item={item} />}>
-      <span className={classes.link} data-quality={item.quality}>
+    <Hover tooltip={<ItemTooltip item={item} />} truncate={truncate}>
+      <span className={classes.link} data-quality={item.quality} data-truncate={truncate || undefined}>
         <Icon icon={item.icon} size="small" className={classes.smallIcon} />
-        {item.name}
+        <span className={classes.name}>{item.name}</span>
       </span>
     </Hover>
   )

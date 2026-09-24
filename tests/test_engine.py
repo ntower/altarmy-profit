@@ -1,5 +1,11 @@
+from collections.abc import Sequence
+
 from wowprofit.engine import (
+    ALL_EXITS,
+    MAIL_POSTAGE,
+    Crafter,
     DisenchantRow,
+    Filters,
     Item,
     Market,
     Material,
@@ -20,6 +26,9 @@ def make_market(
     recipes: list[Recipe] | None = None,
     disenchant: list[DisenchantRow] | None = None,
     thread_vendor_price: int | None = None,
+    crafters: Sequence[Crafter] = (),
+    include_unlearned: bool = False,
+    exits: frozenset[str] = ALL_EXITS,
 ) -> Market:
     items = {
         LINEN: Item(LINEN, "Linen Cloth"),
@@ -35,7 +44,15 @@ def make_market(
             Recipe(10, "Green Robe", GREEN, 1, ((LINEN, 10), (THREAD, 1)), "Tailoring"),
         ]
     )
-    return Market(items, recipes, prices, disenchant)
+    return Market(
+        items,
+        recipes,
+        prices,
+        disenchant,
+        crafters=crafters,
+        include_unlearned=include_unlearned,
+        exits=exits,
+    )
 
 
 def must_evaluate(m: Market, recipe: Recipe) -> Result:
@@ -196,7 +213,7 @@ def test_chain_cycle_terminates() -> None:
         Recipe(12, "B from A", THREAD, 1, ((LINEN, 1),)),
     ]
     m = make_market({}, recipes)
-    assert m.reagent_cost(LINEN) is None
+    assert m.evaluate(recipes[0]) is None
 
 
 def test_rank_sorted_by_profit() -> None:
@@ -208,6 +225,28 @@ def test_rank_sorted_by_profit() -> None:
     m = make_market({LINEN: 10}, recipes)
     ranked = m.rank()
     assert [r.recipe.name for r in ranked] == ["Cheap", "Mid"]  # Loser costs 600 vs 500 vendor
+
+
+def test_only_allowed_exits_are_used() -> None:
+    prices = {LINEN: 20, THREAD: 100, GREEN: 1000}
+    assert must_evaluate(make_market(prices), ROBE).best_exit == "ah"
+    res = must_evaluate(make_market(prices, exits=frozenset({"vendor"})), ROBE)
+    assert (res.best_exit, res.revenue) == ("vendor", 500)
+    assert [e.kind for e in res.exits] == ["vendor"]
+    assert make_market(prices, exits=frozenset({"disenchant"})).evaluate(ROBE) is None
+
+
+def test_filters_bounds_are_inclusive_and_optional() -> None:
+    res = must_evaluate(make_market({LINEN: 20, THREAD: 100}), ROBE)  # cost 300, profit 200, roi 2/3
+    assert Filters().accepts(res)
+    assert Filters(min_cost=300, max_cost=300, min_profit=200, max_profit=200).accepts(res)
+    assert not Filters(max_cost=299).accepts(res)
+    assert not Filters(min_cost=301).accepts(res)
+    assert not Filters(min_profit=201).accepts(res)
+    assert not Filters(max_profit=199).accepts(res)
+    assert Filters(min_roi=0.6, max_roi=0.7).accepts(res)
+    assert not Filters(min_roi=0.7).accepts(res)
+    assert not Filters(max_roi=0.6).accepts(res)
 
 
 def test_recipes_for_professions_ignores_case() -> None:
@@ -258,3 +297,151 @@ def test_chain_only_subcrafts_through_selected_professions() -> None:
     res = must_evaluate(both, recipes[1])
     assert res.cost == 3 * 20 + 5
     assert Step("craft", BOLT, "Bolt of Linen", 3, via="Smelt Bolt") in res.steps
+
+
+# --- mailing to an enchanter -----------------------------------------------------------------------
+ROBE = Recipe(10, "Green Robe", GREEN, 1, ((LINEN, 10), (THREAD, 1)), "Tailoring", spell_id=900)
+DE_ROWS = [DisenchantRow(4, 2, 15, 25, DUST, 1.0, 1, 1)]  # one dust
+DE_PRICES = {LINEN: 20, THREAD: 100, DUST: 1000}  # dust nets 950, beating the 500c vendor price
+
+
+def crafter(name: str, *professions: tuple[str, int], known: frozenset[int] = frozenset()) -> Crafter:
+    return Crafter(name, professions, known)
+
+
+TAILOR = crafter("Tailor", ("Tailoring", 50), known=frozenset({900}))
+
+
+def de_market(
+    *crafters: Crafter, include_unlearned: bool = False, prices: dict[int, int] = DE_PRICES
+) -> Market:
+    return make_market(
+        prices, [ROBE], disenchant=DE_ROWS, crafters=crafters, include_unlearned=include_unlearned
+    )
+
+
+def test_disenchant_is_free_when_the_crafter_enchants() -> None:
+    both = crafter("Both", ("Enchanting", 10), ("Tailoring", 50), known=frozenset({900}))
+    res = must_evaluate(de_market(both), ROBE)
+    assert (res.best_exit, res.cost, res.postage, res.mail_to) == ("disenchant", 300, 0, "")
+    assert "mail" not in [s.action for s in res.steps]
+
+
+def test_disenchant_is_free_when_any_crafter_enchants() -> None:
+    both = crafter("Both", ("Enchanting", 10), ("Tailoring", 50), known=frozenset({900}))
+    res = must_evaluate(de_market(TAILOR, both), ROBE)
+    assert (res.postage, res.mail_to) == (0, "")
+
+
+def test_disenchant_mails_to_the_best_enchanter() -> None:
+    low = crafter("Aaron", ("Enchanting", 10))
+    high = crafter("Zed", ("Enchanting", 90))
+    res = must_evaluate(de_market(TAILOR, low, high), ROBE)
+    assert (res.best_exit, res.mail_to, res.postage) == ("disenchant", "Zed", MAIL_POSTAGE)
+    assert res.cost == 300 + MAIL_POSTAGE
+    assert res.revenue == 950
+    (de,) = [e for e in res.exits if e.kind == "disenchant"]
+    assert (de.postage, de.mail_to) == (MAIL_POSTAGE, "Zed")
+    assert [s.action for s in res.steps] == ["buy", "buy", "craft", "mail", "sell"]
+    assert res.steps[3] == Step("mail", GREEN, "Green Robe", 1, -MAIL_POSTAGE, via="Zed", who="Tailor")
+
+
+def test_disenchant_ties_between_enchanters_go_to_the_first_name() -> None:
+    res = must_evaluate(
+        de_market(TAILOR, crafter("Zed", ("Enchanting", 5)), crafter("Amy", ("Enchanting", 5))), ROBE
+    )
+    assert res.mail_to == "Amy"
+
+
+def test_disenchant_is_dropped_without_an_enchanter() -> None:
+    res = must_evaluate(de_market(TAILOR), ROBE)
+    assert res.best_exit == "vendor"
+    assert "disenchant" not in [e.kind for e in res.exits]
+
+
+def test_postage_can_tip_the_best_exit_to_the_ah() -> None:
+    # dust nets 950 by disenchanting, the robe nets 950 on the AH: postage makes the AH better
+    prices = {**DE_PRICES, GREEN: 1000}
+    res = must_evaluate(de_market(TAILOR, crafter("Enc", ("Enchanting", 1)), prices=prices), ROBE)
+    assert (res.best_exit, res.postage, res.mail_to, res.cost) == ("ah", 0, "", 300)
+    assert "mail" not in [s.action for s in res.steps]
+
+
+def test_no_crafters_means_free_disenchanting() -> None:
+    res = must_evaluate(de_market(), ROBE)
+    assert (res.best_exit, res.postage, res.mail_to) == ("disenchant", 0, "")
+
+
+def test_unlearned_recipe_can_be_crafted_by_anyone_with_the_profession() -> None:
+    novice_tailor = crafter("Novice", ("Tailoring", 1))
+    both = crafter("Both", ("Enchanting", 10), ("Tailoring", 1))
+    assert must_evaluate(de_market(novice_tailor, both, include_unlearned=True), ROBE).postage == 0
+    # someone knows it, so only they craft it
+    res = must_evaluate(de_market(TAILOR, both, include_unlearned=True), ROBE)
+    assert (res.postage, res.mail_to) == (MAIL_POSTAGE, "Both")
+
+
+# --- mailing intermediates between crafters ---------------------------------------------------------
+SCRAPS, LEATHER, MAUL, COPPER = 6, 7, 8, 9
+CURE = Recipe(20, "Light Leather", LEATHER, 1, ((SCRAPS, 3),), "Leatherworking", spell_id=950)
+MAUL_RECIPE = Recipe(
+    21, "Heavy Copper Maul", MAUL, 1, ((LEATHER, 2), (COPPER, 1)), "Blacksmithing", spell_id=951
+)
+SMITHY = crafter("Smithy", ("Blacksmithing", 50), known=frozenset({951}))
+LEATHERY = crafter("Leathery", ("Leatherworking", 50), known=frozenset({950}))
+BOTH = crafter("Both", ("Blacksmithing", 50), ("Leatherworking", 50), known=frozenset({950, 951}))
+
+
+def maul_market(*crafters: Crafter, leather_price: int = 100) -> Market:
+    items = {
+        SCRAPS: Item(SCRAPS, "Ruined Leather Scraps", stack_size=20),
+        LEATHER: Item(LEATHER, "Light Leather", stack_size=20),
+        MAUL: Item(MAUL, "Heavy Copper Maul", class_id=2, sell_price=1000),
+        COPPER: Item(COPPER, "Copper Bar", stack_size=20),
+    }
+    prices = {SCRAPS: 5, LEATHER: leather_price, COPPER: 10}
+    return Market(items, [CURE, MAUL_RECIPE], prices, crafters=crafters)
+
+
+def test_intermediate_is_crafted_by_another_character_and_mailed() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)
+    assert res.crafter == "Smithy"
+    assert res.cost == 2 * 15 + MAIL_POSTAGE + 10  # scraps for 2 leather, one stack mailed, copper
+    leather = res.tree.inputs[0]
+    assert (leather.crafter, leather.mail_to, leather.postage) == ("Leathery", "Smithy", MAIL_POSTAGE)
+    assert res.steps == [
+        Step("buy", SCRAPS, "Ruined Leather Scraps", 6, -30, "ah", "Leathery"),
+        Step("buy", COPPER, "Copper Bar", 1, -10, "ah", "Smithy"),
+        Step("craft", LEATHER, "Light Leather", 2, via="Light Leather", who="Leathery"),
+        Step("mail", LEATHER, "Light Leather", 2, -MAIL_POSTAGE, "Smithy", "Leathery"),
+        Step("craft", MAUL, "Heavy Copper Maul", 1, via="Heavy Copper Maul", who="Smithy"),
+        Step("sell", MAUL, "Heavy Copper Maul", 1, 1000, "vendor", "Smithy"),
+    ]
+
+
+def test_buys_the_intermediate_when_crafting_and_mailing_costs_more() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY, leather_price=20), MAUL_RECIPE)
+    assert res.cost == 2 * 20 + 10  # 40 beats 30 of scraps + 30 postage
+    assert res.tree.inputs[0] == Node(LEATHER, "Light Leather", 2, 40, source="ah", crafter="Smithy")
+    assert "mail" not in [s.action for s in res.steps]
+
+
+def test_one_character_with_both_professions_mails_nothing() -> None:
+    res = must_evaluate(maul_market(BOTH), MAUL_RECIPE)
+    assert (res.crafter, res.cost) == ("Both", 2 * 15 + 10)
+    assert "mail" not in [s.action for s in res.steps]
+
+
+def test_picks_the_final_crafter_who_needs_no_mail() -> None:
+    res = must_evaluate(maul_market(SMITHY, BOTH), MAUL_RECIPE)
+    assert (res.crafter, res.cost) == ("Both", 2 * 15 + 10)
+
+
+def test_postage_is_per_stack() -> None:
+    m = maul_market()
+    assert (m.postage(LEATHER, 20), m.postage(LEATHER, 25), m.postage(MAUL, 2)) == (30, 60, 60)
+
+
+def test_no_characters_means_no_postage_in_chains() -> None:
+    res = must_evaluate(maul_market(), MAUL_RECIPE)
+    assert (res.crafter, res.cost) == ("", 2 * 15 + 10)

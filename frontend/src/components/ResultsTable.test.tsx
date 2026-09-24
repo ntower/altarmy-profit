@@ -1,62 +1,11 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import type { FlowNode, RankResult } from '../api/client'
+import type { RankResult } from '../api/client'
 import { linen, robe as robeItem, thread } from '../test/items'
+import { robeResult as robe } from '../test/results'
 import { renderWithProviders } from '../test/utils'
 import { ResultsTable } from './ResultsTable'
-
-const bought = (item_id: number, name: string, quantity: number, cost: number, source = 'ah'): FlowNode => ({
-  item_id,
-  name,
-  quantity,
-  cost,
-  via: '',
-  crafts: 0,
-  made: 0,
-  source,
-  inputs: [],
-})
-
-const robe: RankResult = {
-  recipe_id: 100,
-  recipe: 'Green Robe',
-  profession: 'Tailoring',
-  crafters: ['Tailor Guy'],
-  output_item_id: 3,
-  output_name: 'Green Robe',
-  output_count: 1,
-  cost: 300,
-  revenue: 500,
-  profit: 200,
-  roi: 2 / 3,
-  best_exit: 'vendor',
-  exits: [
-    { kind: 'vendor', value: 500, materials: [] },
-    { kind: 'ah', value: 475, materials: [] },
-  ],
-  reagents: [
-    { item_id: 1, count: 10 },
-    { item_id: 2, count: 1 },
-  ],
-  steps: [
-    { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 10, value: -200, via: 'ah' },
-    { action: 'buy', item_id: 2, name: 'Coarse Thread', quantity: 1, value: -100, via: 'vendor' },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe' },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor' },
-  ],
-  tree: {
-    item_id: 3,
-    name: 'Green Robe',
-    quantity: 1,
-    cost: 300,
-    via: 'Green Robe',
-    crafts: 1,
-    made: 1,
-    source: '',
-    inputs: [bought(1, 'Linen Cloth', 10, 200), bought(2, 'Coarse Thread', 1, 100, 'vendor')],
-  },
-}
 
 const items = { '1': linen, '2': thread, '3': robeItem }
 
@@ -65,11 +14,15 @@ const disenchanted: RankResult = {
   recipe_id: 101,
   best_exit: 'disenchant',
   revenue: 75988,
+  postage: 30,
+  mail_to: 'Enchy',
   exits: [
-    { kind: 'vendor', value: 500, materials: [] },
+    { kind: 'vendor', value: 500, materials: [], postage: 0, mail_to: '' },
     {
       kind: 'disenchant',
       value: 75988,
+      postage: 30,
+      mail_to: 'Enchy',
       materials: [
         { item_id: 1, name: 'Linen Cloth', chance: 0.75, min_count: 1, max_count: 2, value: 75988 },
         { item_id: 2, name: 'Coarse Thread', chance: 0.25, min_count: 1, max_count: 1, value: null },
@@ -77,10 +30,11 @@ const disenchanted: RankResult = {
     },
   ],
   steps: [
-    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah' },
-    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure' },
-    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe' },
-    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant' },
+    { action: 'buy', item_id: 4, name: 'Medium Hide', quantity: 2, value: -12648, via: 'ah', who: '' },
+    { action: 'craft', item_id: 5, name: 'Cured Medium Hide', quantity: 2, value: 0, via: 'Cure', who: '' },
+    { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: '' },
+    { action: 'mail', item_id: 3, name: 'Green Robe', quantity: 1, value: -30, via: 'Enchy', who: '' },
+    { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 75988, via: 'disenchant', who: '' },
   ],
 }
 
@@ -123,6 +77,8 @@ describe('ResultsTable', () => {
     expect(screen.getByText('Buy from a vendor · -0g 01s 00c')).toBeInTheDocument()
     expect(screen.getByText('Craft 1x Green Robe')).toBeInTheDocument()
     expect(screen.getByText('Sell to a vendor')).toBeInTheDocument()
+    // flow chart item names truncate rather than push the quantity out of the box
+    expect(screen.getByText('Linen Cloth').closest('[data-truncate]')).not.toBeNull()
     expect(screen.getByText((_, el) => el?.textContent === '+0g 05s 00c · profit 0g 02s 00c')).toBeInTheDocument()
     expect(screen.queryByText(/Purchase/)).not.toBeInTheDocument()
   })
@@ -143,6 +99,7 @@ describe('ResultsTable', () => {
     await showSteps(1)
     expect(line('Purchase 2x Medium Hide on the AH (-1g 26s 48c)')).toBeInTheDocument()
     expect(line('Craft 2x Cured Medium Hide')).toBeInTheDocument()
+    expect(line('Mail 1x Green Robe to Enchy (-0g 00s 30c)')).toBeInTheDocument()
     expect(line('Disenchant Green Robe')).toBeInTheDocument()
     expect(line('Sell materials (+7g 59s 88c)')).toBeInTheDocument()
   })
@@ -162,6 +119,58 @@ describe('ResultsTable', () => {
     await expectDisenchantTooltip()
   })
 
+  it('names who does each step and mails intermediates between them', async () => {
+    const split: RankResult = {
+      ...robe,
+      recipe_id: 102,
+      crafter: 'Smithy',
+      steps: [
+        { action: 'buy', item_id: 1, name: 'Linen Cloth', quantity: 6, value: -120, via: 'ah', who: 'Leathery' },
+        { action: 'craft', item_id: 2, name: 'Coarse Thread', quantity: 2, value: 0, via: 'Thread', who: 'Leathery' },
+        { action: 'mail', item_id: 2, name: 'Coarse Thread', quantity: 2, value: -30, via: 'Smithy', who: 'Leathery' },
+        { action: 'craft', item_id: 3, name: 'Green Robe', quantity: 1, value: 0, via: 'Green Robe', who: 'Smithy' },
+        { action: 'sell', item_id: 3, name: 'Green Robe', quantity: 1, value: 500, via: 'vendor', who: 'Smithy' },
+      ],
+    }
+    renderWithProviders(<ResultsTable results={[split]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    await showSteps()
+    expect(line('Leathery: Purchase 6x Linen Cloth on the AH (-0g 01s 20c)')).toBeInTheDocument()
+    expect(line('Leathery: Craft 2x Coarse Thread')).toBeInTheDocument()
+    expect(line('Leathery: Mail 2x Coarse Thread to Smithy (-0g 00s 30c)')).toBeInTheDocument()
+    expect(line('Smithy: Craft 1x Green Robe')).toBeInTheDocument()
+    expect(line('Smithy: Sell 1x Green Robe to a vendor (+0g 05s 00c)')).toBeInTheDocument()
+  })
+
+  it('shows the chosen crafter first among those who know the recipe, in class colours', () => {
+    renderWithProviders(
+      <ResultsTable
+        results={[{ ...robe, crafters: ['Alice', 'Tailor Guy'] }]}
+        items={items}
+        classes={{ 'Tailor Guy': 'MAGE', Alice: 'ROGUE' }}
+      />,
+    )
+    expect(line('Tailor Guy, Alice')).toBeInTheDocument()
+    expect(screen.getByText('Tailor Guy')).toHaveAttribute('data-class', 'MAGE')
+    expect(screen.getByText('Alice')).toHaveAttribute('data-class', 'ROGUE')
+  })
+
+  it('puts the character on its own line in flow chart nodes', async () => {
+    const named: RankResult = { ...robe, tree: { ...robe.tree, crafter: 'Smithy' } }
+    renderWithProviders(<ResultsTable results={[named]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    expect(screen.getByText('Craft 1x Green Robe')).toBeInTheDocument()
+    expect(screen.getByText('Smithy')).toBeInTheDocument()
+  })
+
+  it('shows mailing to an enchanter on the flow chart', async () => {
+    renderWithProviders(<ResultsTable results={[disenchanted]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    expect(screen.getByText((_, el) => el?.tagName === 'SPAN' && el.textContent === 'Mail 1x to Enchy')).toBeInTheDocument()
+    expect(screen.getAllByText('Enchy')).toHaveLength(2) // mail recipient, and the disenchanter under the sale
+    expect(screen.getByText('Postage · -0g 00s 30c')).toBeInTheDocument()
+  })
+
   it('shows the item tooltip on the output and the recipe tooltip on the recipe', async () => {
     renderWithProviders(<ResultsTable results={[robe]} items={items} />)
     const [recipe, output] = screen.getAllByText('Green Robe')
@@ -179,5 +188,50 @@ describe('ResultsTable', () => {
     if (steps) await showSteps()
     await userEvent.hover(screen.getByText('Linen Cloth'))
     expect(await screen.findByText((_, el) => el?.textContent === 'Auction: 20')).toBeInTheDocument()
+  })
+
+  describe('sorting', () => {
+    const rows: RankResult[] = [
+      { ...robe, recipe_id: 1, recipe: 'Bolt', cost: 50, profit: 300, best_exit: 'ah' },
+      { ...robe, recipe_id: 2, recipe: 'Axe', cost: 900, profit: 100, best_exit: 'vendor' },
+      { ...robe, recipe_id: 3, recipe: 'Cape', cost: 400, profit: 200, best_exit: 'disenchant' },
+    ]
+    const order = () =>
+      screen.getAllByRole('button', { name: /^Details for / }).map((b) => b.getAttribute('aria-label')?.slice(12))
+    const header = (name: string) => screen.getByRole('columnheader', { name: new RegExp(`^${name}`) })
+    const sortBy = async (name: string) => await userEvent.click(screen.getByRole('button', { name: `Sort by ${name}` }))
+
+    it('keeps the given order until a column is picked', () => {
+      renderWithProviders(<ResultsTable results={rows} items={items} />)
+      expect(order()).toEqual(['Bolt', 'Axe', 'Cape'])
+      expect(header('Profit')).toHaveAttribute('aria-sort', 'none')
+    })
+
+    it('sorts numbers largest first, then reverses on a second click', async () => {
+      renderWithProviders(<ResultsTable results={rows} items={items} />)
+      await sortBy('Cost')
+      expect(order()).toEqual(['Axe', 'Cape', 'Bolt'])
+      expect(header('Cost')).toHaveAttribute('aria-sort', 'descending')
+      await sortBy('Cost')
+      expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
+      expect(header('Cost')).toHaveAttribute('aria-sort', 'ascending')
+    })
+
+    it('sorts text alphabetically first', async () => {
+      renderWithProviders(<ResultsTable results={rows} items={items} />)
+      await sortBy('Recipe')
+      expect(order()).toEqual(['Axe', 'Bolt', 'Cape'])
+      await sortBy('Sell via')
+      expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
+      expect(header('Recipe')).toHaveAttribute('aria-sort', 'none')
+    })
+
+    it('sorts profit ascending to surface the losers', async () => {
+      renderWithProviders(<ResultsTable results={rows} items={items} />)
+      await sortBy('Profit')
+      expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
+      await sortBy('Profit')
+      expect(order()).toEqual(['Axe', 'Cape', 'Bolt'])
+    })
   })
 })

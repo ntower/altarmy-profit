@@ -32,15 +32,44 @@ export function useCharacters() {
   })
 }
 
-/** Ranked recipes for the selected realm/faction's characters; `minProfit` is copper. */
-export function useRank(includeUnlearned: boolean, minProfit: number, top: number) {
+export type Exit = 'vendor' | 'disenchant' | 'ah'
+
+/** `/api/rank` parameters: money in copper, ROI as a fraction (0.5 = 50%), `null` for no bound. */
+export type RankParams = {
+  includeUnlearned: boolean
+  exits: Exit[]
+  minCost: number | null
+  maxCost: number | null
+  minProfit: number | null
+  maxProfit: number | null
+  minRoi: number | null
+  maxRoi: number | null
+  top: number
+}
+
+const orUndefined = <T>(v: T | null) => v ?? undefined
+
+/** Ranked recipes for the selected realm/faction's characters. */
+export function useRank(params: RankParams) {
   const version = useDataVersion()
   return useQuery({
-    queryKey: ['rank', version, includeUnlearned, minProfit, top],
+    queryKey: ['rank', version, params],
     queryFn: () =>
       call(
         client.GET('/api/rank', {
-          params: { query: { include_unlearned: includeUnlearned, min_profit: minProfit, top } },
+          params: {
+            query: {
+              include_unlearned: params.includeUnlearned,
+              exits: params.exits,
+              min_cost: orUndefined(params.minCost),
+              max_cost: orUndefined(params.maxCost),
+              min_profit: orUndefined(params.minProfit),
+              max_profit: orUndefined(params.maxProfit),
+              min_roi: orUndefined(params.minRoi),
+              max_roi: orUndefined(params.maxRoi),
+              top: params.top,
+            },
+          },
         }),
       ),
     enabled: version !== undefined,

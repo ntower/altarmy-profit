@@ -1,11 +1,12 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import { robeResult } from '../test/results'
 import { characters, status } from '../test/status'
 import { mockApi, renderWithProviders } from '../test/utils'
 import { SearchTab } from './SearchTab'
 
-const noResults = { results: [], items: {} }
+const noResults = { results: [], total: 0, items: {}, classes: {} }
 
 function urls(fetch: ReturnType<typeof mockApi>, pathname: string) {
   return fetch.mock.calls.map(([request]) => new URL(request.url)).filter((u) => u.pathname === pathname)
@@ -37,21 +38,69 @@ describe('SearchTab', () => {
 
   it("shows the selected realm's characters and ranks with the stored parameters", async () => {
     localStorage.setItem('wowprofit.search.includeUnlearned', 'true')
-    localStorage.setItem('wowprofit.search.minGold', JSON.stringify(1.5))
-    localStorage.setItem('wowprofit.search.top', JSON.stringify(10))
+    localStorage.setItem('wowprofit.search.open', JSON.stringify(['advanced', 'characters']))
+    localStorage.setItem('wowprofit.search.exits', JSON.stringify(['ah', 'vendor']))
+    localStorage.setItem('wowprofit.search.minProfit', JSON.stringify(1.5))
+    localStorage.setItem('wowprofit.search.maxCost', JSON.stringify(20))
+    localStorage.setItem('wowprofit.search.minRoi', 'null')
+    localStorage.setItem('wowprofit.search.maxRoi', JSON.stringify(250))
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
     expect(await screen.findByLabelText('Min profit (gold)')).toHaveValue('1.5')
-    expect(screen.getByLabelText('Show top')).toHaveValue('10')
+    expect(screen.getByLabelText('Max cost (gold)')).toHaveValue('20')
+    expect(screen.getByLabelText('Min cost (gold)')).toHaveValue('0')
+    expect(screen.getByLabelText('Min ROI (%)')).toHaveValue('')
+    expect(screen.getByRole('checkbox', { name: 'Auction house' })).toBeChecked()
+    expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toBeChecked()
     expect(screen.getByRole('switch', { name: /Include recipes not learned yet/ })).toBeChecked()
     expect(await screen.findByText('Tailor Guy')).toBeInTheDocument() // characters load after the status
     expect(screen.getByText(/Cooking 1\/75, Tailoring 50\/75/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Characters (1)' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Realm and faction' })).toHaveValue('Classic Beta PvE (Horde)')
-    await screen.findByText(/No profitable recipes found/)
+    await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
-    expect(rank?.searchParams.get('include_unlearned')).toBe('true')
-    expect(rank?.searchParams.get('min_profit')).toBe('15000')
-    expect(rank?.searchParams.get('top')).toBe('10')
+    expect(rank?.searchParams.toString()).toBe(
+      'include_unlearned=true&exits=vendor&exits=ah&min_cost=0&max_cost=200000&min_profit=15000&max_roi=2.5&top=50',
+    )
+  })
+
+  it('opens and closes the sections, remembering which are open', async () => {
+    mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    const advanced = await screen.findByRole('button', { name: 'Advanced Options' })
+    expect(advanced).toHaveAttribute('aria-expanded', 'false')
+    await userEvent.click(advanced)
+    expect(advanced).toHaveAttribute('aria-expanded', 'true')
+    expect(localStorage.getItem('wowprofit.search.open')).toBe('["advanced"]')
+    await userEvent.click(await screen.findByRole('button', { name: /^Characters/ }))
+    expect(localStorage.getItem('wowprofit.search.open')).toBe('["advanced","characters"]')
+    await userEvent.click(advanced)
+    expect(localStorage.getItem('wowprofit.search.open')).toBe('["characters"]')
+  })
+
+  it('asks for a way to sell instead of ranking when none is ticked', async () => {
+    localStorage.setItem('wowprofit.search.exits', '[]')
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
+    renderWithProviders(<SearchTab />)
+    expect(await screen.findByText(/Pick at least one way to sell/)).toBeInTheDocument()
+    expect(urls(fetch, '/api/rank')).toEqual([])
+  })
+
+  it('shows 50 more results at a time', async () => {
+    // As many results as asked for, out of 120.
+    const rank = (url: URL) => {
+      const top = Math.min(Number(url.searchParams.get('top')), 120)
+      const results = Array.from({ length: top }, (_, i) => ({ ...robeResult, recipe_id: i }))
+      return { results, total: 120, items: {}, classes: {} }
+    }
+    const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': rank })
+    renderWithProviders(<SearchTab />)
+    expect(await screen.findByText('Showing 50 of 120')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Show more' }))
+    expect(await screen.findByText('Showing 100 of 120')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Show more' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument())
+    expect(urls(fetch, '/api/rank').map((u) => u.searchParams.get('top'))).toEqual(['50', '100', '150'])
   })
 
   it('switches realm on the server', async () => {
@@ -74,15 +123,23 @@ describe('SearchTab', () => {
 
   it('saves changed parameters and ignores malformed stored values', async () => {
     localStorage.setItem('wowprofit.search.includeUnlearned', '"yes"')
-    localStorage.setItem('wowprofit.search.top', 'garbage')
+    localStorage.setItem('wowprofit.search.maxProfit', 'garbage')
+    localStorage.setItem('wowprofit.search.exits', '["trade"]')
     mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
-    const top = await screen.findByLabelText('Show top')
-    expect(top).toHaveValue('25')
+    const maxProfit = await screen.findByLabelText('Max profit (gold)')
+    expect(maxProfit).toHaveValue('')
+    for (const name of ['Vendor', 'Disenchant', 'Auction house']) {
+      expect(screen.getByRole('checkbox', { name, hidden: true })).toBeChecked()
+    }
     const unlearned = screen.getByRole('switch', { name: /Include recipes not learned yet/ })
     expect(unlearned).not.toBeChecked()
-    fireEvent.change(top, { target: { value: '40' } })
-    expect(localStorage.getItem('wowprofit.search.top')).toBe('40')
+    fireEvent.change(maxProfit, { target: { value: '40' } })
+    expect(localStorage.getItem('wowprofit.search.maxProfit')).toBe('40')
+    fireEvent.change(maxProfit, { target: { value: '' } })
+    expect(localStorage.getItem('wowprofit.search.maxProfit')).toBe('null')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Disenchant', hidden: true }))
+    expect(localStorage.getItem('wowprofit.search.exits')).toBe('["vendor","ah"]')
     fireEvent.click(unlearned)
     expect(localStorage.getItem('wowprofit.search.includeUnlearned')).toBe('true')
   })

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass, field, replace
 
 AH_CUT = 0.05  # auction house cut taken from the sale price (deposit ignored)
+MAIL_POSTAGE = 30  # copper per attached item
 MAX_CHAIN_DEPTH = 3
 DISENCHANTABLE_CLASSES = (2, 4)  # weapon, armor
 DISENCHANTABLE_QUALITIES = (2, 3, 4)
+ALL_EXITS = frozenset({"vendor", "ah", "disenchant"})  # ways to sell a craft (Exit.kind)
 # Real professions offered in the UI; the DB also holds junk skill lines (test, class, etc.).
 PROFESSIONS = (
     "Alchemy",
@@ -36,6 +38,7 @@ class Item:
     class_id: int = 0
     sell_price: int = 0
     vendor_price: int | None = None  # copper per unit if a vendor sells it (unlimited stock)
+    stack_size: int = 1  # units per stack: one mail attachment
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,23 @@ class Recipe:
     skill_name: str = ""
     min_skill: int = 0
     spell_id: int = 0  # the craft spell; Alt Army's recipe ids
+
+
+@dataclass(frozen=True)
+class Crafter:
+    """One character who may craft or disenchant: their (profession, rank) pairs and learned craft spells."""
+
+    name: str
+    professions: tuple[tuple[str, int], ...]
+    known_spells: frozenset[int]
+
+    def has(self, profession: str) -> bool:
+        return any(p.lower() == profession.lower() for p, _ in self.professions)
+
+    @property
+    def enchanting(self) -> int:
+        """Enchanting skill; 0 if they don't have it."""
+        return max((r for p, r in self.professions if p.lower() == "enchanting"), default=0)
 
 
 @dataclass(frozen=True)
@@ -79,44 +99,54 @@ class Exit:
     kind: str  # vendor | ah | disenchant
     value: int  # copper per item, after cuts
     materials: tuple[Material, ...] = ()  # disenchant only: what it yields
+    postage: int = 0  # copper per item to mail it to the character who can use this exit
+    mail_to: str = ""  # that character; "" if the crafter can use it themselves
 
 
 @dataclass(frozen=True)
 class Step:
     """One instruction in a recipe's shopping/crafting/selling sequence."""
 
-    action: str  # buy | craft | sell
+    action: str  # buy | craft | mail | sell
     item_id: int
     name: str
     quantity: int
-    value: int = 0  # copper for the whole step: negative when buying, positive when selling
-    via: str = ""  # buy: vendor | ah; craft: recipe name; sell: vendor | ah | disenchant
+    value: int = 0  # copper for the whole step: negative when buying or mailing, positive when selling
+    via: str = ""  # buy: vendor | ah; craft: recipe name; mail: recipient; sell: vendor | ah | disenchant
+    who: str = ""  # the character doing it; "" if no characters are known
 
 
 @dataclass(frozen=True)
 class Node:
-    """One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs."""
+    """One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by
+    another character who then mails it on."""
 
     item_id: int
     name: str
     quantity: int  # units this branch needs
-    cost: int  # copper spent on them: quantity x price if bought, sum of inputs if crafted
+    cost: int  # copper spent on them: quantity x price if bought, sum of inputs if crafted; plus postage
     via: str = ""  # recipe name if crafted
     crafts: int = 0  # recipe runs if crafted: whole batches, so `made` may exceed `quantity`
     made: int = 0  # units those crafts produce
     inputs: tuple[Node, ...] = ()
     source: str = ""  # vendor | ah if bought
+    crafter: str = ""  # who buys or crafts it; "" if no characters are known
+    mail_to: str = ""  # who it is mailed to (the parent's crafter); "" if not mailed
+    postage: int = 0  # copper for that mail, included in cost
 
 
 @dataclass
 class Result:
     recipe: Recipe
-    cost: int  # per craft
+    cost: int  # per craft: reagents plus postage
     revenue: int  # per craft (best exit x output_count)
     best_exit: str
     tree: Node  # the recipe's craft, with its reagents as inputs
     exits: list[Exit] = field(default_factory=list)
-    steps: list[Step] = field(default_factory=list)  # buy reagents, craft (sub-crafts first), sell
+    steps: list[Step] = field(default_factory=list)  # buy reagents, craft (sub-crafts first), mail, sell
+    postage: int = 0  # per craft: mailing the output to whoever sells it (included in cost)
+    mail_to: str = ""  # who the output is mailed to; "" if the crafter sells it
+    crafter: str = ""  # who does the final craft; "" if no characters are known
 
     @property
     def profit(self) -> int:
@@ -125,6 +155,31 @@ class Result:
     @property
     def roi(self) -> float:
         return self.profit / self.cost if self.cost else 0.0
+
+
+@dataclass(frozen=True)
+class Filters:
+    """Inclusive bounds on a result's cost and profit (copper) and ROI (0.5 = 50%); None is unbounded."""
+
+    min_cost: int | None = None
+    max_cost: int | None = None
+    min_profit: int | None = None
+    max_profit: int | None = None
+    min_roi: float | None = None
+    max_roi: float | None = None
+
+    def accepts(self, r: Result) -> bool:
+        def within(value: float, lo: float | None, hi: float | None) -> bool:
+            return (lo is None or value >= lo) and (hi is None or value <= hi)
+
+        return (
+            within(r.cost, self.min_cost, self.max_cost)
+            and within(r.profit, self.min_profit, self.max_profit)
+            and within(r.roi, self.min_roi, self.max_roi)
+        )
+
+
+Memo = dict[tuple[int, int, str, int, frozenset[int]], Node | None]
 
 
 def ah_net(price: int, cut: float = AH_CUT) -> int:
@@ -139,15 +194,26 @@ class Market:
         prices: dict[int, int],
         disenchant: list[DisenchantRow] | None = None,
         ah_cut: float = AH_CUT,
+        *,
+        crafters: Sequence[Crafter] = (),
+        include_unlearned: bool = False,
+        exits: frozenset[str] = ALL_EXITS,
     ):
+        """`crafters` are the characters who craft and disenchant, mailing items between them; without
+        them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
+        profession craft it when nobody has learned it. Crafts are only sold via `exits`."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
         self.disenchant = disenchant or []
         self.ah_cut = ah_cut
+        self.crafters = crafters
+        self.include_unlearned = include_unlearned
+        self.exits = exits
         self._by_output: dict[int, list[Recipe]] = {}
         for r in recipes:
             self._by_output.setdefault(r.output_item_id, []).append(r)
+        self._who_crafts = {r.id: self._crafter_names(r) for r in recipes}
 
     # --- selling ---------------------------------------------------------------------
     def _disenchant_rows(self, item: Item) -> list[DisenchantRow]:
@@ -205,6 +271,38 @@ class Market:
             out.append(Exit("disenchant", de, tuple(self.disenchant_materials(item))))
         return out
 
+    def _disenchanter(self, who: str) -> tuple[str, int] | None:
+        """Who disenchants what `who` crafted and the postage per item to get it to them.
+
+        ("", 0) if `who` enchants (or no characters are known), the best other enchanter and
+        MAIL_POSTAGE otherwise, None if nobody enchants.
+        """
+        if not self.crafters or any(c.name == who and c.enchanting for c in self.crafters):
+            return "", 0
+        enchanters = [c for c in self.crafters if c.enchanting]
+        if not enchanters:
+            return None
+        best = min(enchanters, key=lambda c: (-c.enchanting, c.name))
+        return best.name, MAIL_POSTAGE
+
+    def _exits_at(self, exits: list[Exit], who: str) -> list[Exit]:
+        """`exits` for an item `who` holds: disenchanting charged postage or dropped per `_disenchanter`."""
+        out = []
+        for e in exits:
+            if e.kind == "disenchant":
+                de = self._disenchanter(who)
+                if de is None:
+                    continue
+                e = replace(e, mail_to=de[0], postage=de[1])
+            out.append(e)
+        return out
+
+    def postage(self, item_id: int, qty: int) -> int:
+        """Copper to mail `qty` units: one attachment per stack."""
+        item = self.items.get(item_id)
+        stack = max(1, item.stack_size) if item else 1
+        return MAIL_POSTAGE * -(-qty // stack)
+
     # --- buying / chains ---------------------------------------------------------------
     def buy_price(self, item_id: int) -> tuple[int, str] | None:
         """Cheapest place to buy one unit: (copper, "vendor" | "ah"). Ties go to the vendor, whose
@@ -217,101 +315,146 @@ class Market:
             options.append((self.prices[item_id], "ah"))
         return min(options, key=lambda o: o[0]) if options else None
 
-    def reagent_cost(
-        self, item_id: int, depth: int = 0, seen: frozenset[int] = frozenset()
-    ) -> tuple[int, Recipe | None] | None:
-        """Cheapest way to obtain one unit: buy it (recipe None), or craft it from other priced reagents."""
-        options: list[tuple[int, Recipe | None]] = []
-        bought = self.buy_price(item_id)
-        if bought is not None:
-            options.append((bought[0], None))
-        if depth < MAX_CHAIN_DEPTH and item_id not in seen:
-            for r in self._by_output.get(item_id, []):
-                got = self._recipe_cost(r, depth + 1, seen | {item_id})
-                if got is not None:
-                    options.append((got // r.output_count, r))
-        return min(options, key=lambda o: o[0]) if options else None  # ties prefer buying
+    def _crafter_names(self, recipe: Recipe) -> list[str]:
+        if not self.crafters:
+            return [""]  # one unnamed character who does everything
+        return [c.name for c in crafters_of(recipe, self.crafters, self.include_unlearned)]
 
-    def _recipe_cost(self, recipe: Recipe, depth: int, seen: frozenset[int]) -> int | None:
-        total = 0
-        for item_id, count in recipe.reagents:
-            got = self.reagent_cost(item_id, depth, seen)
-            if got is None:
-                return None
-            total += got[0] * count
-        return total
+    def _who(self, recipe: Recipe) -> list[str]:
+        """Who can craft `recipe`."""
+        got = self._who_crafts.get(recipe.id)
+        return got if got is not None else self._crafter_names(recipe)
 
     def _name(self, item_id: int) -> str:
         return self.items[item_id].name if item_id in self.items else str(item_id)
 
-    def tree(self, recipe: Recipe) -> Node:
-        """One craft of `recipe` as a tree, following the same choices as its cost: each reagent is
-        bought, or crafted in whole batches from its own reagents."""
+    def _obtain(
+        self, item_id: int, qty: int, at: str, depth: int, seen: frozenset[int], memo: Memo
+    ) -> Node | None:
+        """The cheapest way for `at` to hold `qty` units: buy them, or craft them in whole batches
+        (themselves, or another character who mails them over). Ties prefer buying, then `at` crafting."""
+        key = (item_id, qty, at, depth, seen)
+        if key in memo:
+            return memo[key]
+        options: list[Node] = []
+        bought = self.buy_price(item_id)
+        if bought is not None:
+            options.append(
+                Node(item_id, self._name(item_id), qty, qty * bought[0], source=bought[1], crafter=at)
+            )
+        if depth < MAX_CHAIN_DEPTH and item_id not in seen:
+            for r in self._by_output.get(item_id, []):
+                runs = -(-qty // r.output_count)
+                for who in sorted(self._who(r), key=lambda w: w != at):
+                    node = self._craft(r, qty, runs, who, depth + 1, seen | {item_id}, memo)
+                    if node is not None and who != at:
+                        p = self.postage(item_id, qty)
+                        node = replace(node, cost=node.cost + p, mail_to=at, postage=p)
+                    if node is not None:
+                        options.append(node)
+        best = min(options, key=lambda n: n.cost) if options else None
+        memo[key] = best
+        return best
 
-        def need(item_id: int, qty: int, depth: int, seen: frozenset[int]) -> Node:
-            got = self.reagent_cost(item_id, depth, seen)
-            assert got is not None  # evaluate() already costed the whole tree
-            via = got[1]
-            if via is None:
-                bought = self.buy_price(item_id)
-                assert bought is not None
-                return Node(item_id, self._name(item_id), qty, qty * bought[0], source=bought[1])
-            runs = -(-qty // via.output_count)
-            inputs = tuple(need(i, count * runs, depth + 1, seen | {item_id}) for i, count in via.reagents)
-            return self._craft(item_id, qty, via, runs, inputs)
-
-        inputs = tuple(need(i, count, 0, frozenset()) for i, count in recipe.reagents)
-        return self._craft(recipe.output_item_id, recipe.output_count, recipe, 1, inputs)
-
-    def _craft(self, item_id: int, qty: int, recipe: Recipe, runs: int, inputs: tuple[Node, ...]) -> Node:
+    def _craft(
+        self, recipe: Recipe, qty: int, runs: int, who: str, depth: int, seen: frozenset[int], memo: Memo
+    ) -> Node | None:
+        """`runs` crafts of `recipe` by `who`, getting each reagent the cheapest way; None if one can't
+        be had."""
+        inputs = []
+        for item_id, count in recipe.reagents:
+            got = self._obtain(item_id, count * runs, who, depth, seen, memo)
+            if got is None:
+                return None
+            inputs.append(got)
+        item_id = recipe.output_item_id
         cost = sum(n.cost for n in inputs)
+        made = recipe.output_count * runs
         return Node(
-            item_id, self._name(item_id), qty, cost, recipe.name, runs, recipe.output_count * runs, inputs
+            item_id, self._name(item_id), qty, cost, recipe.name, runs, made, tuple(inputs), crafter=who
         )
 
     @staticmethod
-    def steps(tree: Node, sell_via: str, revenue: int) -> list[Step]:
-        """Instructions for a craft tree: buy every bought reagent (merged per item), craft
-        intermediates before what uses them, then sell. Sub-crafts are whole crafts, so a
-        multi-output intermediate may leave spares."""
-        buys: dict[int, Node] = {}
-        crafts: dict[int, Node] = {}
+    def steps(tree: Node, sell_via: str, revenue: int, mail_to: str = "", postage: int = 0) -> list[Step]:
+        """Instructions for a craft tree: buy every bought reagent (merged per item and character),
+        craft intermediates before what uses them, mailing each to the character who needs it, craft,
+        mail the output to `mail_to` if set (`postage` in total), then sell. Sub-crafts are whole
+        crafts, so a multi-output intermediate may leave spares."""
+        buys: dict[tuple[str, int, str, str], Step] = {}
+        crafts: dict[tuple[str, int, str, str], Step] = {}  # craft and mail steps, in walk order
+
+        def add(steps: dict[tuple[str, int, str, str], Step], step: Step) -> None:
+            key = (step.action, step.item_id, step.who, step.via)
+            had = steps.get(key)
+            steps[key] = (
+                replace(step, quantity=step.quantity + had.quantity, value=step.value + had.value)
+                if had
+                else step
+            )
 
         def walk(node: Node) -> None:
             if not node.via:
-                had = buys.get(node.item_id)
-                buys[node.item_id] = replace(
-                    node,
-                    quantity=node.quantity + (had.quantity if had else 0),
-                    cost=node.cost + (had.cost if had else 0),
+                add(
+                    buys,
+                    Step(
+                        "buy", node.item_id, node.name, node.quantity, -node.cost, node.source, node.crafter
+                    ),
                 )
                 return
             for n in node.inputs:
                 walk(n)
-            had = crafts.get(node.item_id)
-            crafts[node.item_id] = replace(node, made=node.made + (had.made if had else 0))
+            add(crafts, Step("craft", node.item_id, node.name, node.made, via=node.via, who=node.crafter))
+            if node.mail_to:
+                add(
+                    crafts,
+                    Step(
+                        "mail",
+                        node.item_id,
+                        node.name,
+                        node.quantity,
+                        -node.postage,
+                        node.mail_to,
+                        node.crafter,
+                    ),
+                )
 
         for n in tree.inputs:
             walk(n)
+        who = tree.crafter
         return [
-            *(Step("buy", n.item_id, n.name, n.quantity, -n.cost, n.source) for n in buys.values()),
-            *(Step("craft", n.item_id, n.name, n.made, via=n.via) for n in crafts.values()),
-            Step("craft", tree.item_id, tree.name, tree.made, via=tree.via),
-            Step("sell", tree.item_id, tree.name, tree.made, revenue, via=sell_via),
+            *buys.values(),
+            *crafts.values(),
+            Step("craft", tree.item_id, tree.name, tree.made, via=tree.via, who=who),
+            *([Step("mail", tree.item_id, tree.name, tree.made, -postage, mail_to, who)] if mail_to else []),
+            Step("sell", tree.item_id, tree.name, tree.made, revenue, sell_via, mail_to or who),
         ]
 
     # --- evaluation --------------------------------------------------------------------
     def evaluate(self, recipe: Recipe) -> Result | None:
-        cost = self._recipe_cost(recipe, 0, frozenset())
-        if cost is None:
-            return None
-        exits = self.exits_for(recipe.output_item_id)
+        """The most profitable way to craft and sell `recipe`: over who crafts it, how each reagent
+        is had (and mailed), and the exit."""
+        exits = [e for e in self.exits_for(recipe.output_item_id) if e.kind in self.exits]
         if not exits:
             return None
-        best = max(exits, key=lambda e: e.value)
-        revenue = best.value * recipe.output_count
-        tree = self.tree(recipe)
-        return Result(recipe, cost, revenue, best.kind, tree, exits, self.steps(tree, best.kind, revenue))
+        memo: Memo = {}
+        best: Result | None = None
+        for who in self._who(recipe):
+            tree = self._craft(recipe, recipe.output_count, 1, who, 0, frozenset(), memo)
+            here = self._exits_at(exits, who)
+            if tree is None or not here:
+                continue
+            mail = self.postage(recipe.output_item_id, tree.made)
+            # net of postage; ties keep the earlier, unmailed exit
+            exit = max(here, key=lambda e: e.value * recipe.output_count - (mail if e.postage else 0))
+            postage = mail if exit.postage else 0
+            revenue = exit.value * recipe.output_count
+            steps = self.steps(tree, exit.kind, revenue, exit.mail_to, postage)
+            res = Result(
+                recipe, tree.cost + postage, revenue, exit.kind, tree, here, steps, postage, exit.mail_to, who
+            )
+            if best is None or res.profit > best.profit:
+                best = res
+        return best
 
     def rank(self, min_profit: int = 0, skill_name: str | None = None) -> list[Result]:
         results = []
@@ -343,6 +486,16 @@ def recipes_for_characters(
     """
     wanted = {p.lower() for p in professions} if include_unlearned else set()
     return [r for r in recipes if r.spell_id in known_spells or r.skill_name.lower() in wanted]
+
+
+def crafters_of(recipe: Recipe, crafters: Iterable[Crafter], include_unlearned: bool) -> list[Crafter]:
+    """Who can craft `recipe`: those who learned it, or with `include_unlearned` and nobody having
+    learned it, everyone with its profession (as in `recipes_for_characters`)."""
+    crafters = list(crafters)
+    known = [c for c in crafters if recipe.spell_id in c.known_spells]
+    if known or not include_unlearned:
+        return known
+    return [c for c in crafters if c.has(recipe.skill_name)]
 
 
 def format_money(copper: int) -> str:

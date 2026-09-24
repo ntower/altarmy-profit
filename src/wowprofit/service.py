@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import altarmy, auctionator, db, ingest, prices, store
 from .altarmy import Character
-from .engine import Market, Result, recipes_for_characters
+from .engine import ALL_EXITS, Crafter, Filters, Market, Result, recipes_for_characters
 
 
 class MarketCache:
@@ -54,17 +54,35 @@ class Selection:
 
 
 def search(
-    base: Market, chars: Sequence[Character], include_unlearned: bool, min_profit: int, top: int
+    base: Market,
+    chars: Sequence[Character],
+    include_unlearned: bool,
+    filters: Filters,
+    exits: frozenset[str] = ALL_EXITS,
 ) -> list[Result]:
-    """Rank what the characters can craft. Chains sub-craft through any of their recipes too.
+    """Rank what the characters can craft, selling only via `exits`, and keep what `filters` accepts.
+    Chains sub-craft through any of their recipes too.
 
-    `include_unlearned` widens that to every recipe of the characters' professions.
+    `include_unlearned` widens that to every recipe of the characters' professions. Disenchanting needs
+    an enchanter among them, plus postage unless one of the recipe's crafters enchants.
     """
     known = frozenset().union(*(c.known_recipes for c in chars))
     professions = {p.name for c in chars for p in c.professions}
     recipes = recipes_for_characters(base.recipes, known, professions, include_unlearned)
-    market = Market(base.items, recipes, base.prices, base.disenchant)
-    return market.rank(min_profit=min_profit)[:top]
+    crafters = [
+        Crafter(c.name, tuple((p.name, p.rank) for p in c.professions), c.known_recipes) for c in chars
+    ]
+    market = Market(
+        base.items,
+        recipes,
+        base.prices,
+        base.disenchant,
+        crafters=crafters,
+        include_unlearned=include_unlearned,
+        exits=exits,
+    )
+    min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
+    return [r for r in market.rank(min_profit=min_profit) if filters.accepts(r)]
 
 
 # --- realm/faction selection -----------------------------------------------------------------------

@@ -65,12 +65,20 @@
             "title": "Kind",
             "type": "string"
           },
+          "mail_to": {
+            "title": "Mail To",
+            "type": "string"
+          },
           "materials": {
             "items": {
               "$ref": "#/components/schemas/MaterialOut"
             },
             "title": "Materials",
             "type": "array"
+          },
+          "postage": {
+            "title": "Postage",
+            "type": "integer"
           },
           "value": {
             "title": "Value",
@@ -80,7 +88,9 @@
         "required": [
           "kind",
           "value",
-          "materials"
+          "materials",
+          "postage",
+          "mail_to"
         ],
         "title": "ExitOut",
         "type": "object"
@@ -325,11 +335,15 @@
         "type": "object"
       },
       "NodeOut": {
-        "description": "One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs.",
+        "description": "One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by\nanother character who then mails it on.",
         "properties": {
           "cost": {
             "title": "Cost",
             "type": "integer"
+          },
+          "crafter": {
+            "title": "Crafter",
+            "type": "string"
           },
           "crafts": {
             "title": "Crafts",
@@ -350,9 +364,17 @@
             "title": "Made",
             "type": "integer"
           },
+          "mail_to": {
+            "title": "Mail To",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "postage": {
+            "title": "Postage",
+            "type": "integer"
           },
           "quantity": {
             "title": "Quantity",
@@ -376,6 +398,9 @@
           "crafts",
           "made",
           "source",
+          "crafter",
+          "mail_to",
+          "postage",
           "inputs"
         ],
         "title": "NodeOut",
@@ -411,6 +436,13 @@
       },
       "RankResponse": {
         "properties": {
+          "classes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Classes",
+            "type": "object"
+          },
           "items": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ItemInfo"
@@ -424,11 +456,17 @@
             },
             "title": "Results",
             "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
           "results",
-          "items"
+          "total",
+          "items",
+          "classes"
         ],
         "title": "RankResponse",
         "type": "object"
@@ -442,6 +480,10 @@
           "cost": {
             "title": "Cost",
             "type": "integer"
+          },
+          "crafter": {
+            "title": "Crafter",
+            "type": "string"
           },
           "crafters": {
             "items": {
@@ -457,6 +499,10 @@
             "title": "Exits",
             "type": "array"
           },
+          "mail_to": {
+            "title": "Mail To",
+            "type": "string"
+          },
           "output_count": {
             "title": "Output Count",
             "type": "integer"
@@ -468,6 +514,10 @@
           "output_name": {
             "title": "Output Name",
             "type": "string"
+          },
+          "postage": {
+            "title": "Postage",
+            "type": "integer"
           },
           "profession": {
             "title": "Profession",
@@ -516,6 +566,7 @@
           "recipe",
           "profession",
           "crafters",
+          "crafter",
           "output_item_id",
           "output_name",
           "output_count",
@@ -524,6 +575,8 @@
           "profit",
           "roi",
           "best_exit",
+          "postage",
+          "mail_to",
           "exits",
           "reagents",
           "steps",
@@ -755,6 +808,7 @@
             "enum": [
               "buy",
               "craft",
+              "mail",
               "sell"
             ],
             "title": "Action",
@@ -779,6 +833,10 @@
           "via": {
             "title": "Via",
             "type": "string"
+          },
+          "who": {
+            "title": "Who",
+            "type": "string"
           }
         },
         "required": [
@@ -787,7 +845,8 @@
           "name",
           "quantity",
           "value",
-          "via"
+          "via",
+          "who"
         ],
         "title": "StepOut",
         "type": "object"
@@ -976,7 +1035,7 @@
     },
     "/api/rank": {
       "get": {
-        "description": "What the selected realm/faction's characters can craft, most profitable first.",
+        "description": "What the selected realm/faction's characters can craft, most profitable first. Bounds are\ninclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
@@ -992,15 +1051,135 @@
             }
           },
           {
+            "description": "ways the crafts may be sold",
+            "in": "query",
+            "name": "exits",
+            "required": false,
+            "schema": {
+              "default": [
+                "vendor",
+                "ah",
+                "disenchant"
+              ],
+              "description": "ways the crafts may be sold",
+              "items": {
+                "enum": [
+                  "vendor",
+                  "ah",
+                  "disenchant"
+                ],
+                "type": "string"
+              },
+              "title": "Exits",
+              "type": "array"
+            }
+          },
+          {
+            "description": "copper",
+            "in": "query",
+            "name": "min_cost",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "copper",
+              "title": "Min Cost"
+            }
+          },
+          {
+            "description": "copper",
+            "in": "query",
+            "name": "max_cost",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "copper",
+              "title": "Max Cost"
+            }
+          },
+          {
             "description": "copper",
             "in": "query",
             "name": "min_profit",
             "required": false,
             "schema": {
-              "default": 0,
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "description": "copper",
-              "title": "Min Profit",
-              "type": "integer"
+              "title": "Min Profit"
+            }
+          },
+          {
+            "description": "copper",
+            "in": "query",
+            "name": "max_profit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "copper",
+              "title": "Max Profit"
+            }
+          },
+          {
+            "description": "profit / cost (0.5 = 50%)",
+            "in": "query",
+            "name": "min_roi",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "profit / cost (0.5 = 50%)",
+              "title": "Min Roi"
+            }
+          },
+          {
+            "description": "profit / cost (0.5 = 50%)",
+            "in": "query",
+            "name": "max_roi",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "profit / cost (0.5 = 50%)",
+              "title": "Max Roi"
             }
           },
           {
@@ -1008,8 +1187,7 @@
             "name": "top",
             "required": false,
             "schema": {
-              "default": 25,
-              "maximum": 500,
+              "default": 50,
               "minimum": 1,
               "title": "Top",
               "type": "integer"

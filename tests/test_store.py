@@ -35,6 +35,7 @@ def test_load_market_prices_vendor_items_per_unit(
     items = store.load_market(conn).items
     assert items[2].vendor_price == 11  # 51c per stack of 5, rounded up
     assert items[1].vendor_price is None  # not sold by vendors
+    assert (items[1].stack_size, items[3].stack_size) == (20, 1)  # robe: no Stackable -> 1
 
 
 def test_load_market_keeps_spell_ids(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:

@@ -25,6 +25,9 @@ from .store import CACHE_DIR, DISENCHANT_CSV, VENDOR_CSV
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
+ExitKind = Literal["vendor", "ah", "disenchant"]
+ALL_EXIT_KINDS: tuple[ExitKind, ...] = ("vendor", "ah", "disenchant")
+
 
 # --- models ----------------------------------------------------------------------------------------
 class SelectionModel(BaseModel):
@@ -67,28 +70,35 @@ class ExitOut(BaseModel):
     kind: str  # vendor | ah | disenchant
     value: int  # copper per item, after cuts
     materials: list[MaterialOut]  # disenchant only: what it yields
+    postage: int  # copper per item to mail it to the character who can use this exit
+    mail_to: str  # that character; "" if the crafter can use it themselves
 
 
 class StepOut(BaseModel):
-    action: Literal["buy", "craft", "sell"]
+    action: Literal["buy", "craft", "mail", "sell"]
     item_id: int
     name: str
     quantity: int
-    value: int  # copper for the whole step: negative when buying, positive when selling
-    via: str  # buy: vendor | ah; craft: recipe name; sell: vendor | ah | disenchant
+    value: int  # copper for the whole step: negative when buying or mailing, positive when selling
+    via: str  # buy: vendor | ah; craft: recipe name; mail: recipient; sell: vendor | ah | disenchant
+    who: str  # the character doing it; "" if no characters are known
 
 
 class NodeOut(BaseModel):
-    """One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs."""
+    """One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by
+    another character who then mails it on."""
 
     item_id: int
     name: str
     quantity: int  # units this branch needs
-    cost: int  # copper spent on them
+    cost: int  # copper spent on them, including postage
     via: str  # recipe name if crafted, "" if bought
     crafts: int  # recipe runs if crafted
     made: int  # units those crafts produce (may exceed quantity)
     source: str  # vendor | ah if bought, "" if crafted
+    crafter: str  # who buys or crafts it
+    mail_to: str  # who it is mailed to (the parent's crafter); "" if not mailed
+    postage: int  # copper for that mail
     inputs: list[NodeOut]
 
 
@@ -102,6 +112,9 @@ def _node_out(n: engine.Node) -> NodeOut:
         crafts=n.crafts,
         made=n.made,
         source=n.source,
+        crafter=n.crafter,
+        mail_to=n.mail_to,
+        postage=n.postage,
         inputs=[_node_out(i) for i in n.inputs],
     )
 
@@ -138,23 +151,28 @@ class RankResult(BaseModel):
     recipe: str
     profession: str
     crafters: list[str]  # selected characters who know the recipe; empty if nobody has learned it
+    crafter: str  # who does the cheapest craft (may not have learned it, with include_unlearned)
     output_item_id: int
     output_name: str
     output_count: int
-    cost: int
+    cost: int  # reagents plus all postage
     revenue: int
     profit: int
     roi: float
     best_exit: str
+    postage: int  # copper to mail the output to whoever sells it (included in cost)
+    mail_to: str  # who the output is mailed to; "" if the crafter sells it
     exits: list[ExitOut]
     reagents: list[ItemCount]
-    steps: list[StepOut]  # buy reagents, craft (intermediates first), sell
+    steps: list[StepOut]  # buy reagents, craft (intermediates first), mail, sell
     tree: NodeOut  # the recipe's craft, with reagents as inputs
 
 
 class RankResponse(BaseModel):
-    results: list[RankResult]
+    results: list[RankResult]  # the first `top` matches
+    total: int  # how many recipes matched the filters
     items: dict[int, ItemInfo]  # every item the results mention, for tooltips
+    classes: dict[str, str]  # selected character name -> class file (e.g. PALADIN), for class colours
 
 
 class UpdateResult(BaseModel):
@@ -359,15 +377,24 @@ def get_rank(
     include_unlearned: Annotated[
         bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
     ] = False,
-    min_profit: Annotated[int, Query(description="copper")] = 0,
-    top: Annotated[int, Query(ge=1, le=500)] = 25,
+    exits: Annotated[Sequence[ExitKind], Query(description="ways the crafts may be sold")] = ALL_EXIT_KINDS,
+    min_cost: Annotated[int | None, Query(description="copper")] = None,
+    max_cost: Annotated[int | None, Query(description="copper")] = None,
+    min_profit: Annotated[int | None, Query(description="copper")] = None,
+    max_profit: Annotated[int | None, Query(description="copper")] = None,
+    min_roi: Annotated[float | None, Query(description="profit / cost (0.5 = 50%)")] = None,
+    max_roi: Annotated[float | None, Query(description="profit / cost (0.5 = 50%)")] = None,
+    top: Annotated[int, Query(ge=1)] = 50,
 ) -> RankResponse:
-    """What the selected realm/faction's characters can craft, most profitable first."""
+    """What the selected realm/faction's characters can craft, most profitable first. Bounds are
+    inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
     state = _state(request)
     base = state.cache.get()
     with _connect(state) as conn:
         _, chars = service.selected_characters(conn)
-    results = service.search(base, chars, include_unlearned, min_profit, top)
+    filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
+    matches = service.search(base, chars, include_unlearned, filters, frozenset(exits))
+    results = matches[:top]
     crafters = altarmy.crafters(chars)
     item_ids = (
         {s.item_id for r in results for s in r.steps}
@@ -377,6 +404,8 @@ def get_rank(
     with _connect(state) as conn:
         details = store.load_item_details(conn, item_ids)
     return RankResponse(
+        total=len(matches),
+        classes={c.name: c.class_file for c in chars},
         items={
             i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
             for i, d in details.items()
@@ -387,6 +416,7 @@ def get_rank(
                 recipe=r.recipe.name,
                 profession=r.recipe.skill_name,
                 crafters=crafters.get(r.recipe.spell_id, []),
+                crafter=r.crafter,
                 output_item_id=r.recipe.output_item_id,
                 output_name=base.items[r.recipe.output_item_id].name
                 if r.recipe.output_item_id in base.items
@@ -397,23 +427,28 @@ def get_rank(
                 profit=r.profit,
                 roi=r.roi,
                 best_exit=r.best_exit,
+                postage=r.postage,
+                mail_to=r.mail_to,
                 exits=[
                     ExitOut(
                         kind=e.kind,
                         value=e.value,
                         materials=[MaterialOut(**asdict(m)) for m in e.materials],
+                        postage=e.postage,
+                        mail_to=e.mail_to,
                     )
                     for e in r.exits
                 ],
                 reagents=[ItemCount(item_id=i, count=c) for i, c in r.recipe.reagents],
                 steps=[
                     StepOut(
-                        action=cast(Literal["buy", "craft", "sell"], s.action),
+                        action=cast(Literal["buy", "craft", "mail", "sell"], s.action),
                         item_id=s.item_id,
                         name=s.name,
                         quantity=s.quantity,
                         value=s.value,
                         via=s.via,
+                        who=s.who,
                     )
                     for s in r.steps
                 ],

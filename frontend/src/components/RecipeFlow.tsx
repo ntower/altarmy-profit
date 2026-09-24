@@ -2,8 +2,9 @@ import { useMemo } from 'react'
 import { useComputedColorScheme } from '@mantine/core'
 import { Controls, Handle, Position, ReactFlow, type NodeProps, type NodeTypes } from '@xyflow/react'
 import type { ItemMap, RankResult } from '../api/client'
-import { buildFlow, type ItemFlowNode, type SellFlowNode } from '../lib/flow'
+import { buildFlow, type ItemFlowNode, type MailFlowNode, type SellFlowNode } from '../lib/flow'
 import { formatMoney } from '../lib/money'
+import { CharacterName } from './CharacterName'
 import { DisenchantHover, ItemLink } from './ItemTooltip'
 import classes from './RecipeFlow.module.css'
 
@@ -19,29 +20,49 @@ const SELL_TEXT: Record<string, string> = {
 }
 
 function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap }) {
-  const { itemId, name, quantity, cost, via, crafts, made, source, isLeaf } = data
+  const { itemId, name, quantity, cost, via, crafts, made, source, crafter, isLeaf } = data
   const spare = made - quantity
   return (
     <div className={classes.node}>
       {!isLeaf && <Handle type="target" position={Position.Left} className={classes.handle} />}
       <div className={classes.title}>
-        <span className="nodrag nopan">
-          <ItemLink item={items[itemId]} name={name} />
+        <span className={`nodrag nopan ${classes.name}`}>
+          <ItemLink item={items[itemId]} name={name} truncate />
         </span>
-        <span>{quantity}x</span>
+        <span className={classes.quantity}>{quantity}x</span>
       </div>
       <div className={classes.detail}>
         {via
           ? `Craft ${crafts}x ${via}${spare > 0 ? ` (${spare} spare)` : ''}`
           : `Buy ${BUY_FROM[source] ?? source} · ${formatMoney(-cost)}`}
       </div>
+      {crafter && (
+        <div className={classes.detail}>
+          <CharacterName name={crafter} />
+        </div>
+      )}
+      <Handle type="source" position={Position.Right} className={classes.handle} />
+    </div>
+  )
+}
+
+function MailNode({ data: { to, postage, quantity } }: NodeProps<MailFlowNode>) {
+  return (
+    <div className={classes.node}>
+      <Handle type="target" position={Position.Left} className={classes.handle} />
+      <div className={classes.title}>
+        <span>
+          Mail {quantity}x to <CharacterName name={to} />
+        </span>
+      </div>
+      <div className={classes.detail}>Postage · {formatMoney(-postage)}</div>
       <Handle type="source" position={Position.Right} className={classes.handle} />
     </div>
   )
 }
 
 function SellNode({
-  data: { exit, revenue, profit },
+  data: { exit, revenue, profit, seller },
   result,
   items,
 }: NodeProps<SellFlowNode> & { result: RankResult; items: ItemMap }) {
@@ -66,17 +87,23 @@ function SellNode({
           {formatMoney(profit)}
         </span>
       </div>
+      {exit === 'disenchant' && seller && (
+        <div className={classes.detail}>
+          <CharacterName name={seller} />
+        </div>
+      )}
     </div>
   )
 }
 
-/** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, then the sale. */
+/** A recipe's reagent tree as a left-to-right flow chart: bought reagents, crafts, mailing, then the sale. */
 export function RecipeFlow({ result, items }: { result: RankResult; items: ItemMap }) {
   const colorScheme = useComputedColorScheme('light')
   const flow = useMemo(() => buildFlow(result), [result])
   const nodeTypes = useMemo<NodeTypes>(
     () => ({
       item: (props: NodeProps<ItemFlowNode>) => <ItemNode {...props} items={items} />,
+      mail: MailNode,
       sell: (props: NodeProps<SellFlowNode>) => <SellNode {...props} result={result} items={items} />,
     }),
     [result, items],

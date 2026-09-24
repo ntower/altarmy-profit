@@ -26,6 +26,16 @@
   white-space: nowrap;
 }
 
+/* A long item name gives way (ellipsis) so the quantity stays in the box. */
+.name {
+  display: flex;
+  min-width: 0;
+}
+
+.quantity {
+  flex: none;
+}
+
 .detail {
   overflow: hidden;
   color: var(--mantine-color-dimmed);

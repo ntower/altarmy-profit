@@ -1,0 +1,69 @@
+/* Class colours: the in-game ones on dark, darker variants that stay readable on light. */
+.name {
+  --death-knight: #c41e3a;
+  --demon-hunter: #a330c9;
+  --druid: #ff7c0a;
+  --evoker: #33937f;
+  --hunter: #aad372;
+  --mage: #3fc7eb;
+  --monk: #00ff98;
+  --paladin: #f48cba;
+  --priest: #ffffff;
+  --rogue: #fff468;
+  --shaman: #0070dd;
+  --warlock: #8788ee;
+  --warrior: #c69b6d;
+}
+
+:global([data-mantine-color-scheme='light']) .name {
+  --druid: #c75f00;
+  --hunter: #5b8a2b;
+  --mage: #1686ab;
+  --monk: #00965a;
+  --paladin: #c2507f;
+  --priest: var(--mantine-color-text);
+  --rogue: #9a8c00;
+  --shaman: #0060c0;
+  --warlock: #5b5cc4;
+  --warrior: #8f6a3f;
+}
+
+.name[data-class='DEATHKNIGHT'] {
+  color: var(--death-knight);
+}
+.name[data-class='DEMONHUNTER'] {
+  color: var(--demon-hunter);
+}
+.name[data-class='DRUID'] {
+  color: var(--druid);
+}
+.name[data-class='EVOKER'] {
+  color: var(--evoker);
+}
+.name[data-class='HUNTER'] {
+  color: var(--hunter);
+}
+.name[data-class='MAGE'] {
+  color: var(--mage);
+}
+.name[data-class='MONK'] {
+  color: var(--monk);
+}
+.name[data-class='PALADIN'] {
+  color: var(--paladin);
+}
+.name[data-class='PRIEST'] {
+  color: var(--priest);
+}
+.name[data-class='ROGUE'] {
+  color: var(--rogue);
+}
+.name[data-class='SHAMAN'] {
+  color: var(--shaman);
+}
+.name[data-class='WARLOCK'] {
+  color: var(--warlock);
+}
+.name[data-class='WARRIOR'] {
+  color: var(--warrior);
+}

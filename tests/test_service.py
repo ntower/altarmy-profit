@@ -7,6 +7,7 @@ import pytest
 
 from wowprofit import altarmy, db, ingest, prices, service, store
 from wowprofit.altarmy import Character, Profession
+from wowprofit.engine import Filters
 from wowprofit.service import Selection, SyncResult
 
 from .conftest import SV_DIR
@@ -42,17 +43,31 @@ def test_search_ranks_known_recipes_or_whole_professions(
     conn.commit()
     base = store.load_market(conn)
 
-    (r,) = service.search(base, chars("Tailor Guy"), False, min_profit=0, top=10)
+    profitable = Filters(min_profit=0)
+    (r,) = service.search(base, chars("Tailor Guy"), False, profitable)
     assert r.profit == 200
-    assert service.search(base, chars("Tailor Guy"), False, min_profit=201, top=10) == []
-    assert service.search(base, chars("Frell", "Ally Alt"), False, min_profit=0, top=10) == []
-    assert service.search(base, [], True, min_profit=0, top=10) == []
+    assert service.search(base, chars("Tailor Guy"), False, Filters(min_profit=201)) == []
+    assert service.search(base, chars("Tailor Guy"), False, Filters(max_cost=299)) == []
+    assert service.search(base, chars("Tailor Guy"), False, profitable, exits=frozenset({"ah"})) == []
+    assert service.search(base, chars("Frell", "Ally Alt"), False, profitable) == []
+    assert service.search(base, [], True, profitable) == []
 
     (tailor,) = chars("Tailor Guy")
     novice = replace(tailor, professions=(Profession("Tailoring", 1, 75, frozenset()),))
-    assert service.search(base, [novice], False, min_profit=0, top=10) == []
-    unlearned = service.search(base, [novice], True, min_profit=0, top=10)
+    assert service.search(base, [novice], False, profitable) == []
+    unlearned = service.search(base, [novice], True, profitable)
     assert [r.recipe.name for r in unlearned] == ["Green Robe"]
+
+
+def test_search_without_min_profit_keeps_losses(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
+    ingest.build_db(db2_paths, conn)
+    prices.set_price(conn, 1, 100)  # 10 linen cost more than the robe sells for
+    prices.set_price(conn, 2, 100)
+    conn.commit()
+    base = store.load_market(conn)
+    assert service.search(base, chars("Tailor Guy"), False, Filters(min_profit=0)) == []
+    (r,) = service.search(base, chars("Tailor Guy"), False, Filters())
+    assert r.profit < 0
 
 
 @pytest.mark.parametrize(

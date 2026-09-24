@@ -48,6 +48,7 @@ def load_market(conn: sqlite3.Connection) -> Market:
             r["class_id"],
             r["sell_price"],
             -(-r["buy_price"] // r["buy_count"]) if r["sold"] and r["buy_price"] > 0 else None,
+            r["stack_size"],
         )
         for r in conn.execute(
             "SELECT i.*, v.item_id IS NOT NULL AS sold FROM items i"

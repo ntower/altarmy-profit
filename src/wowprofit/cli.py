@@ -9,7 +9,7 @@ import webbrowser
 from pathlib import Path
 
 from . import altarmy, db, ingest, prices, service, store
-from .engine import format_money
+from .engine import Filters, format_money
 from .store import DISENCHANT_CSV, VENDOR_CSV, load_market
 
 
@@ -74,7 +74,7 @@ def cmd_rank(args: argparse.Namespace) -> None:
         results = market.rank(min_profit=args.min_profit, skill_name=args.skill)
     else:
         print(f"{sel.realm} ({sel.faction}). Characters: {', '.join(c.name for c in chars)}")
-        results = service.search(market, chars, args.include_unlearned, args.min_profit, len(market.recipes))
+        results = service.search(market, chars, args.include_unlearned, Filters(min_profit=args.min_profit))
         if args.skill:
             results = [r for r in results if r.recipe.skill_name.lower() == args.skill.lower()]
     results = results[: args.top]

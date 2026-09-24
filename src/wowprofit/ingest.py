@@ -102,6 +102,7 @@ ITEM_INSERT_COLUMNS = (
     "description",
     "icon",
     "buy_count",
+    "stack_size",
 )
 
 
@@ -151,6 +152,7 @@ def build_db(
                 r["Description_lang"] or None,
                 icons.get(icon),
                 max(1, _int(r.get("VendorStackCount"), 1)),
+                max(1, _int(r.get("Stackable"), 1)),
             )
         )
     placeholders = ", ".join("?" * len(ITEM_INSERT_COLUMNS))

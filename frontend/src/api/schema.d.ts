@@ -81,7 +81,8 @@ export interface paths {
         };
         /**
          * Get Rank
-         * @description What the selected realm/faction's characters can craft, most profitable first.
+         * @description What the selected realm/faction's characters can craft, most profitable first. Bounds are
+         *     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
         put?: never;
@@ -214,8 +215,12 @@ export interface components {
         ExitOut: {
             /** Kind */
             kind: string;
+            /** Mail To */
+            mail_to: string;
             /** Materials */
             materials: components["schemas"]["MaterialOut"][];
+            /** Postage */
+            postage: number;
             /** Value */
             value: number;
         };
@@ -300,11 +305,14 @@ export interface components {
         };
         /**
          * NodeOut
-         * @description One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs.
+         * @description One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by
+         *     another character who then mails it on.
          */
         NodeOut: {
             /** Cost */
             cost: number;
+            /** Crafter */
+            crafter: string;
             /** Crafts */
             crafts: number;
             /** Inputs */
@@ -313,8 +321,12 @@ export interface components {
             item_id: number;
             /** Made */
             made: number;
+            /** Mail To */
+            mail_to: string;
             /** Name */
             name: string;
+            /** Postage */
+            postage: number;
             /** Quantity */
             quantity: number;
             /** Source */
@@ -335,12 +347,18 @@ export interface components {
         };
         /** RankResponse */
         RankResponse: {
+            /** Classes */
+            classes: {
+                [key: string]: string;
+            };
             /** Items */
             items: {
                 [key: string]: components["schemas"]["ItemInfo"];
             };
             /** Results */
             results: components["schemas"]["RankResult"][];
+            /** Total */
+            total: number;
         };
         /** RankResult */
         RankResult: {
@@ -348,16 +366,22 @@ export interface components {
             best_exit: string;
             /** Cost */
             cost: number;
+            /** Crafter */
+            crafter: string;
             /** Crafters */
             crafters: string[];
             /** Exits */
             exits: components["schemas"]["ExitOut"][];
+            /** Mail To */
+            mail_to: string;
             /** Output Count */
             output_count: number;
             /** Output Item Id */
             output_item_id: number;
             /** Output Name */
             output_name: string;
+            /** Postage */
+            postage: number;
             /** Profession */
             profession: string;
             /** Profit */
@@ -441,7 +465,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "buy" | "craft" | "sell";
+            action: "buy" | "craft" | "mail" | "sell";
             /** Item Id */
             item_id: number;
             /** Name */
@@ -452,6 +476,8 @@ export interface components {
             value: number;
             /** Via */
             via: string;
+            /** Who */
+            who: string;
         };
         /** UpdateResult */
         UpdateResult: {
@@ -587,8 +613,20 @@ export interface operations {
             query?: {
                 /** @description rank every recipe of the characters' professions, not just learned ones */
                 include_unlearned?: boolean;
+                /** @description ways the crafts may be sold */
+                exits?: ("vendor" | "ah" | "disenchant")[];
                 /** @description copper */
-                min_profit?: number;
+                min_cost?: number | null;
+                /** @description copper */
+                max_cost?: number | null;
+                /** @description copper */
+                min_profit?: number | null;
+                /** @description copper */
+                max_profit?: number | null;
+                /** @description profit / cost (0.5 = 50%) */
+                min_roi?: number | null;
+                /** @description profit / cost (0.5 = 50%) */
+                max_roi?: number | null;
                 top?: number;
             };
             header?: never;

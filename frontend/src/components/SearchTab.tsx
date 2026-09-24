@@ -1,13 +1,44 @@
-import { Alert, Group, Loader, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
+import { useMemo, useState } from 'react'
+import {
+  Accordion,
+  Alert,
+  Button,
+  Checkbox,
+  Flex,
+  Group,
+  Loader,
+  NumberInput,
+  Select,
+  SimpleGrid,
+  Stack,
+  Switch,
+  Text,
+} from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
 import type { CharacterGroup, Selection } from '../api/client'
-import { useCharacters, useRank, useSelectRealm, useStatus } from '../api/queries'
+import { type Exit, type RankParams, useCharacters, useRank, useSelectRealm, useStatus } from '../api/queries'
 import { goldToCopper } from '../lib/money'
 import { useStoredState } from '../lib/storage'
+import { CharacterName } from './CharacterName'
 import { ResultsTable } from './ResultsTable'
 
-const asNumber = (v: number | string, fallback: number) => (typeof v === 'number' ? v : fallback)
+/** Results per page: the first request asks for this many, and each "Show more" for this many more. */
+const PAGE = 50
+
+const EXITS: { value: Exit; label: string }[] = [
+  { value: 'vendor', label: 'Vendor' },
+  { value: 'disenchant', label: 'Disenchant' },
+  { value: 'ah', label: 'Auction house' },
+]
+const ALL_EXITS: Exit[] = EXITS.map((e) => e.value)
+const SECTIONS = ['advanced', 'characters'] as const
+const NONE_OPEN: (typeof SECTIONS)[number][] = []
+
+const bound = z.number().nullable()
+/** NumberInput reports an empty field as ''; that means no bound. */
+const toBound = (v: number | string) => (typeof v === 'number' ? v : null)
+const scaled = (v: number | null, f: (v: number) => number) => (v === null ? null : f(v))
 
 // Realms may contain spaces but never tabs.
 const toKey = (s: Selection) => `${s.realm}\t${s.faction}`
@@ -16,14 +47,38 @@ const fromKey = (key: string): Selection => {
   return { realm, faction }
 }
 
-function Results({ includeUnlearned, minGold, top }: { includeUnlearned: boolean; minGold: number; top: number }) {
-  const rank = useRank(includeUnlearned, goldToCopper(minGold), top)
+type Filters = Omit<RankParams, 'top'>
+
+function Results({ filters }: { filters: Filters }) {
+  // Back to one page whenever the filters change.
+  const [page, setPage] = useState({ filters, top: PAGE })
+  const top = page.filters === filters ? page.top : PAGE
+  const rank = useRank({ ...filters, top })
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
-  if (!rank.data.results.length) {
-    return <Alert>No profitable recipes found for these characters with the current prices.</Alert>
+  const { results, total } = rank.data
+  if (!results.length) {
+    return <Alert>No recipes match these filters for these characters with the current prices.</Alert>
   }
-  return <ResultsTable results={rank.data.results} items={rank.data.items} />
+  return (
+    <Stack>
+      <ResultsTable results={results} items={rank.data.items} classes={rank.data.classes} />
+      {total > results.length && (
+        <Group justify="center">
+          <Text size="sm" c="dimmed">
+            Showing {results.length} of {total}
+          </Text>
+          <Button
+            variant="light"
+            loading={rank.isPlaceholderData}
+            onClick={() => setPage({ filters, top: top + PAGE })}
+          >
+            Show more
+          </Button>
+        </Group>
+      )}
+    </Stack>
+  )
 }
 
 function CharacterList({ group }: { group: CharacterGroup }) {
@@ -31,7 +86,9 @@ function CharacterList({ group }: { group: CharacterGroup }) {
     <Stack gap={2}>
       {group.characters.map((c) => (
         <Text key={c.name} size="sm">
-          <b>{c.name}</b>{' '}
+          <b>
+            <CharacterName name={c.name} classFile={c.class_file} />
+          </b>{' '}
           <Text span c="dimmed" size="sm">
             {c.level}
             {c.professions.length ? ': ' : ''}
@@ -40,6 +97,37 @@ function CharacterList({ group }: { group: CharacterGroup }) {
         </Text>
       ))}
     </Stack>
+  )
+}
+
+type RangeProps = {
+  name: string // e.g. "cost (gold)"
+  min: number | null
+  max: number | null
+  onMin: (v: number | null) => void
+  onMax: (v: number | null) => void
+  step: number
+}
+
+function Range({ name, min, max, onMin, onMax, step }: RangeProps) {
+  return (
+    <Group grow gap="xs" align="flex-start">
+      <NumberInput
+        label={`Min ${name}`}
+        value={min ?? ''}
+        onChange={(v) => onMin(toBound(v))}
+        step={step}
+        decimalScale={4}
+      />
+      <NumberInput
+        label={`Max ${name}`}
+        placeholder="No max"
+        value={max ?? ''}
+        onChange={(v) => onMax(toBound(v))}
+        step={step}
+        decimalScale={4}
+      />
+    </Group>
   )
 }
 
@@ -52,9 +140,29 @@ export function SearchTab() {
     z.boolean(),
     false,
   )
-  const [minGold, setMinGold] = useStoredState('wowprofit.search.minGold', z.number(), 0)
-  const [top, setTop] = useStoredState('wowprofit.search.top', z.int().min(1).max(500), 25)
-  const [debouncedMinGold] = useDebouncedValue(minGold, 300)
+  const [open, setOpen] = useStoredState('wowprofit.search.open', z.array(z.enum(SECTIONS)), NONE_OPEN)
+  const [exits, setExits] = useStoredState('wowprofit.search.exits', z.array(z.enum(ALL_EXITS)), ALL_EXITS)
+  // Money in gold and ROI in percent, as typed; converted for the API below.
+  const [minCost, setMinCost] = useStoredState('wowprofit.search.minCost', bound, 0)
+  const [maxCost, setMaxCost] = useStoredState('wowprofit.search.maxCost', bound, null)
+  const [minProfit, setMinProfit] = useStoredState('wowprofit.search.minProfit', bound, 0)
+  const [maxProfit, setMaxProfit] = useStoredState('wowprofit.search.maxProfit', bound, null)
+  const [minRoi, setMinRoi] = useStoredState('wowprofit.search.minRoi', bound, 0)
+  const [maxRoi, setMaxRoi] = useStoredState('wowprofit.search.maxRoi', bound, null)
+  const filters = useMemo<Filters>(
+    () => ({
+      includeUnlearned,
+      exits: ALL_EXITS.filter((e) => exits.includes(e)),
+      minCost: scaled(minCost, goldToCopper),
+      maxCost: scaled(maxCost, goldToCopper),
+      minProfit: scaled(minProfit, goldToCopper),
+      maxProfit: scaled(maxProfit, goldToCopper),
+      minRoi: scaled(minRoi, (p) => p / 100),
+      maxRoi: scaled(maxRoi, (p) => p / 100),
+    }),
+    [includeUnlearned, exits, minCost, maxCost, minProfit, maxProfit, minRoi, maxRoi],
+  )
+  const [debouncedFilters] = useDebouncedValue(filters, 300)
 
   if (status.isPending) return <Loader />
   if (status.isError) return <Alert color="red">{status.error.message}</Alert>
@@ -78,7 +186,12 @@ export function SearchTab() {
           {w}
         </Alert>
       ))}
-      <Group align="flex-end" wrap="wrap">
+      <Flex
+        direction={{ base: 'column', sm: 'row' }}
+        justify="space-between"
+        align={{ base: 'stretch', sm: 'flex-end' }}
+        gap="md"
+      >
         <Select
           label="Realm and faction"
           placeholder="No characters"
@@ -86,42 +199,74 @@ export function SearchTab() {
           value={selection ? toKey(selection) : null}
           onChange={(key) => key && select.mutate(fromKey(key))}
           allowDeselect={false}
-          style={{ flex: 3, minWidth: 260 }}
+          style={{ flex: 1, maxWidth: 420 }}
         />
-        <NumberInput
-          label="Min profit (gold)"
-          value={minGold}
-          onChange={(v) => setMinGold(asNumber(v, 0))}
-          step={0.5}
-          decimalScale={4}
-          style={{ flex: 1, minWidth: 140 }}
+        <Switch
+          label="Include recipes not learned yet"
+          description="Every recipe of these characters' professions, not just the ones they know."
+          checked={includeUnlearned}
+          onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
         />
-        <NumberInput
-          label="Show top"
-          value={top}
-          onChange={(v) => setTop(asNumber(v, 25))}
-          min={1}
-          max={500}
-          step={5}
-          allowDecimal={false}
-          clampBehavior="strict"
-          style={{ flex: 1, minWidth: 120 }}
-        />
-      </Group>
-      <Switch
-        label="Include recipes not learned yet"
-        description="Every recipe of these characters' professions, not just the ones they know."
-        checked={includeUnlearned}
-        onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
-      />
-      {group && <CharacterList group={group} />}
+      </Flex>
+      <Accordion
+        multiple
+        variant="separated"
+        value={open}
+        onChange={(v) => setOpen(SECTIONS.filter((s) => v.includes(s)))}
+      >
+        <Accordion.Item value="advanced">
+          <Accordion.Control>Advanced Options</Accordion.Control>
+          <Accordion.Panel>
+            <Stack>
+              <Checkbox.Group
+                label="Sell via"
+                value={exits}
+                onChange={(v) => setExits(ALL_EXITS.filter((e) => v.includes(e)))}
+              >
+                <Group mt={4}>
+                  {EXITS.map((e) => (
+                    <Checkbox key={e.value} value={e.value} label={e.label} />
+                  ))}
+                </Group>
+              </Checkbox.Group>
+              <SimpleGrid cols={{ base: 1, sm: 3 }}>
+                <Range
+                  name="cost (gold)"
+                  min={minCost}
+                  max={maxCost}
+                  onMin={setMinCost}
+                  onMax={setMaxCost}
+                  step={1}
+                />
+                <Range
+                  name="profit (gold)"
+                  min={minProfit}
+                  max={maxProfit}
+                  onMin={setMinProfit}
+                  onMax={setMaxProfit}
+                  step={0.5}
+                />
+                <Range name="ROI (%)" min={minRoi} max={maxRoi} onMin={setMinRoi} onMax={setMaxRoi} step={10} />
+              </SimpleGrid>
+            </Stack>
+          </Accordion.Panel>
+        </Accordion.Item>
+        <Accordion.Item value="characters">
+          <Accordion.Control>Characters{group ? ` (${group.characters.length})` : ''}</Accordion.Control>
+          <Accordion.Panel>
+            {group ? <CharacterList group={group} /> : <Text c="dimmed">No characters imported.</Text>}
+          </Accordion.Panel>
+        </Accordion.Item>
+      </Accordion>
       {status.data.prices === 0 && (
         <Alert color="yellow">No prices yet. Scan the auction house with Auctionator, then /reload.</Alert>
       )}
-      {status.data.selection ? (
-        <Results includeUnlearned={includeUnlearned} minGold={debouncedMinGold} top={top} />
-      ) : (
+      {!status.data.selection ? (
         <Alert>No characters yet. Install the Alt Army addon, log in, or set its file on the Manage tab.</Alert>
+      ) : debouncedFilters.exits.length ? (
+        <Results filters={debouncedFilters} />
+      ) : (
+        <Alert>Pick at least one way to sell under Advanced Options.</Alert>
       )}
     </Stack>
   )

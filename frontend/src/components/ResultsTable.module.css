@@ -3,3 +3,19 @@ tr.details,
 tr.details:hover {
   background-color: transparent;
 }
+
+/* Sortable column headers: the arrow shows faintly until its column is the sort. */
+.sort {
+  font-weight: inherit;
+  white-space: nowrap;
+}
+
+.arrow {
+  margin-left: 4px;
+  font-size: 0.7em;
+  opacity: 0.25;
+}
+
+.arrow[data-active] {
+  opacity: 1;
+}

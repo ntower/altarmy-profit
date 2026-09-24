@@ -109,6 +109,27 @@
   cursor: default;
 }
 
+/* Truncating links shrink to their container; the name then ends in an ellipsis. */
+.target[data-truncate] {
+  display: flex;
+  min-width: 0;
+}
+
+.link[data-truncate] {
+  min-width: 0;
+}
+
+.link[data-truncate] .smallIcon {
+  flex: none;
+}
+
+.target[data-truncate] .name,
+.plainName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .link {
   --q0: #9d9d9d;
   --q1: var(--mantine-color-text);

@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS items (
     required_skill_rank INTEGER NOT NULL DEFAULT 0,
     description TEXT,                        -- flavor text
     icon TEXT,                               -- icon file name, lowercase, without extension
-    buy_count INTEGER NOT NULL DEFAULT 1     -- vendors sell stacks of this many for buy_price
+    buy_count INTEGER NOT NULL DEFAULT 1,    -- vendors sell stacks of this many for buy_price
+    stack_size INTEGER NOT NULL DEFAULT 1    -- units per stack (one mail attachment)
 );
 CREATE INDEX IF NOT EXISTS items_name ON items(name);
 
@@ -126,6 +127,7 @@ ITEM_COLUMNS = {
     "description": "TEXT",
     "icon": "TEXT",
     "buy_count": "INTEGER NOT NULL DEFAULT 1",
+    "stack_size": "INTEGER NOT NULL DEFAULT 1",
 }
 
 

@@ -57,10 +57,12 @@ def test_empty_db(client: TestClient) -> None:
 
 
 def test_rank_known_recipes(client: TestClient, priced: sqlite3.Connection) -> None:
-    (r,) = client.get("/api/rank").json()["results"]
+    body = client.get("/api/rank").json()
+    (r,) = body["results"]
     assert r["recipe"] == "Green Robe"
     assert r["profession"] == "Tailoring"
-    assert r["crafters"] == ["Tailor Guy"]
+    assert (r["crafters"], r["crafter"]) == (["Tailor Guy"], "Tailor Guy")
+    assert body["classes"] == {"Tailor Guy": "MAGE"}
     assert (r["output_name"], r["output_count"]) == ("Green Robe", 1)
     assert (r["cost"], r["revenue"], r["profit"]) == (300, 500, 200)
     assert r["roi"] == pytest.approx(2 / 3)
@@ -71,7 +73,8 @@ def test_rank_known_recipes(client: TestClient, priced: sqlite3.Connection) -> N
         ("craft", "Green Robe", 1, 0, "Green Robe"),
         ("sell", "Green Robe", 1, 500, "vendor"),
     ]
-    assert {"kind": "vendor", "value": 500, "materials": []} in r["exits"]
+    assert {"kind": "vendor", "value": 500, "materials": [], "postage": 0, "mail_to": ""} in r["exits"]
+    assert (r["postage"], r["mail_to"]) == (0, "")
     tree = r["tree"]
     assert (tree["item_id"], tree["quantity"], tree["cost"], tree["via"], tree["crafts"]) == (
         3,
@@ -101,9 +104,18 @@ def test_rank_buys_reagents_from_vendors(
     assert (body["items"]["2"]["vendor_price"], body["items"]["1"]["vendor_price"]) == (11, None)
 
 
+def with_enchanter(conn: sqlite3.Connection) -> None:
+    """Add an enchanter (who can't tailor) to the tailor's realm/faction."""
+    enchanter = Character(
+        "Classic Beta PvE", "Enchy", "Horde", "PRIEST", 20, (Profession("Enchanting", 60, 75, frozenset()),)
+    )
+    store.save_characters(conn, [*altarmy.parse_characters(ALTARMY_SV), enchanter])
+
+
 def test_rank_sends_disenchant_materials(client: TestClient, priced: sqlite3.Connection) -> None:
     priced.execute("INSERT INTO disenchant VALUES (4, 2, 0, 1000, 1, 0.5, 1, 3)")  # robe -> 1-3 linen
     priced.commit()
+    with_enchanter(priced)
     body = client.get("/api/rank").json()
     (r,) = body["results"]
     (de,) = [e for e in r["exits"] if e["kind"] == "disenchant"]
@@ -111,6 +123,24 @@ def test_rank_sends_disenchant_materials(client: TestClient, priced: sqlite3.Con
         {"item_id": 1, "name": "Linen Cloth", "chance": 0.5, "min_count": 1, "max_count": 3, "value": 19}
     ]
     assert all(e["materials"] == [] for e in r["exits"] if e["kind"] != "disenchant")
+
+
+def test_rank_mails_disenchants_to_an_enchanter(client: TestClient, priced: sqlite3.Connection) -> None:
+    priced.execute("INSERT INTO disenchant VALUES (4, 2, 0, 1000, 1, 1.0, 100, 100)")  # robe -> 100 linen
+    priced.commit()
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["best_exit"] == "vendor"  # nobody on the realm can disenchant
+
+    with_enchanter(priced)
+    (r,) = client.get("/api/rank").json()["results"]
+    assert (r["best_exit"], r["postage"], r["mail_to"], r["cost"]) == ("disenchant", 30, "Enchy", 330)
+    assert ("mail", "Green Robe", 1, -30, "Enchy", "Tailor Guy") in [
+        (s["action"], s["name"], s["quantity"], s["value"], s["via"], s["who"]) for s in r["steps"]
+    ]
+    assert [(n["crafter"], n["mail_to"], n["postage"]) for n in r["tree"]["inputs"]] == [
+        ("Tailor Guy", "", 0),
+        ("Tailor Guy", "", 0),
+    ]
 
 
 def test_rank_sends_reagents_and_item_details(client: TestClient, priced: sqlite3.Connection) -> None:
@@ -142,11 +172,26 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: sqlite
 
 
 def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connection) -> None:
-    high = client.get("/api/rank", params={"min_profit": 201})
-    assert high.json()["results"] == []
+    def total(**params: str | int | float | list[str]) -> int:
+        body = client.get("/api/rank", params=params).json()
+        assert len(body["results"]) == body["total"]
+        return int(body["total"])
+
+    assert total() == 1  # cost 300, profit 200, roi 2/3, sold to a vendor
+    assert total(min_profit=201) == 0
+    assert total(min_profit=200, max_profit=200, min_cost=300, max_cost=300) == 1
+    assert total(max_profit=199) == 0
+    assert total(min_cost=301) == 0
+    assert total(max_cost=299) == 0
+    assert total(min_roi=0.6, max_roi=0.7) == 1
+    assert total(min_roi=0.7) == 0
+    assert total(max_roi=0.6) == 0
+    assert total(exits=["ah", "disenchant"]) == 0
+    assert total(exits=["vendor"]) == 1
+    assert client.get("/api/rank", params={"exits": "trade"}).status_code == 422
+    assert client.get("/api/rank", params={"top": 0}).status_code == 422
     service.select(priced, "Dreamscythe", "Horde")  # cooks only
-    assert client.get("/api/rank").json()["results"] == []
-    assert client.get("/api/rank", params={"top": 501}).status_code == 422
+    assert total() == 0
 
 
 def test_update_game_data_invalidates_cache(
