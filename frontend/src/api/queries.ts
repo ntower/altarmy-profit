@@ -139,6 +139,71 @@ export function useEvaluations(
   })
 }
 
+/** How to sign in (never changes while the page is open). */
+export function useConfig() {
+  return useQuery({
+    queryKey: ['config'],
+    queryFn: () => call(client.GET('/api/config')),
+    staleTime: Infinity,
+  })
+}
+
+/** The signed-in user and tier; fetched once signed in (`enabled`), and again after linking. */
+export function useMe(enabled: boolean) {
+  return useQuery({
+    queryKey: ['me'],
+    queryFn: () => call(client.GET('/api/me')),
+    enabled,
+    staleTime: Infinity,
+  })
+}
+
+/** The chosen game's auction houses, with how many prices each has. */
+export function useRealms() {
+  const gameVersion = useGameVersion()
+  const version = useDataVersion()
+  return useQuery({
+    queryKey: ['realms', gameVersion, version],
+    queryFn: () => call(client.GET('/api/realms', gv(gameVersion))),
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** Items priced on an auction house whose name contains `q`, by name. */
+export function usePrices(auctionHouseId: number | null, q: string, top = 50) {
+  const gameVersion = useGameVersion()
+  const version = useDataVersion()
+  return useQuery({
+    queryKey: ['prices', gameVersion, version, auctionHouseId, q, top],
+    queryFn: () =>
+      call(
+        client.GET('/api/prices', {
+          params: { query: { game_version: gameVersion, auction_house_id: auctionHouseId ?? 0, q, top } },
+        }),
+      ),
+    enabled: auctionHouseId !== null,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/** One item's current price and daily history on an auction house. */
+export function usePriceHistory(auctionHouseId: number, itemId: number) {
+  const gameVersion = useGameVersion()
+  const version = useDataVersion()
+  return useQuery({
+    queryKey: ['price-history', gameVersion, version, auctionHouseId, itemId],
+    queryFn: () =>
+      call(
+        client.GET('/api/prices/{item_id}', {
+          params: {
+            path: { item_id: itemId },
+            query: { game_version: gameVersion, auction_house_id: auctionHouseId },
+          },
+        }),
+      ),
+  })
+}
+
 export function useAuctionatorFiles() {
   const gameVersion = useGameVersion()
   return useQuery({

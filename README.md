@@ -13,7 +13,7 @@ Local tool that finds profitable crafting recipes and production chains for **Wo
 ```powershell
 python -m venv .venv
 .venv\Scripts\activate
-pip install -e ".[dev,ui]"   # drop ,ui if you only want the CLI
+pip install -e ".[dev,ui]"   # drop ,ui if you only want the CLI; add ,hosted for hosted mode (firebase-admin)
 npm ci; cd frontend; npm ci; npm run build; cd ..   # web UI and dev tooling (needs Node.js)
 python scripts/check.py     # Python: ruff, mypy (strict), pytest. Front end: oxlint, vitest, tsc + vite build
 ```
@@ -72,7 +72,7 @@ characters of one realm and faction can craft (chains may use any of their recip
 The web UI is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit ui`); build
 it once with `npm run build` in `frontend/`. A switch in the header picks the game (WoW: Forever or TBC
 Anniversary); everything below it, including characters, prices and settings on Manage, belongs to that
-game. It has two tabs:
+game. It has three tabs:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft, and names who
   crafts each recipe. A switch adds recipes of their professions they have not learned yet. Expand a
@@ -82,6 +82,8 @@ game. It has two tabs:
   shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
   bought there).
+- **Prices** looks up an auction house's current prices by item name; **history** on a row shows
+  Auctionator's daily low, high and quantity for it.
 - **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
   the chosen game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
   files in use.
@@ -91,6 +93,33 @@ folders, in the chosen game's folder (`_classic_beta_` for Forever, `_anniversar
 another path on Manage), and re-imports either one whenever
 WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator scan; each
 auction house keeps its own, so switching realms back and forth loses nothing.
+
+### Local and hosted mode
+
+`ALTARMY_MODE` picks how the server runs (the same code either way):
+
+- `local` (the default): one user, no sign-in, the addon files above are synced. Everything this README
+  describes.
+- `hosted`: the multi-user web app being built (see `docs/HOSTED_PLAN.md`). Visitors are signed in with
+  Firebase, anonymously at first; a guest sees only the Prices tab, for items of required level 30 and
+  below. Linking a Google or email account (the header's **Link account**) keeps the same user and unlocks
+  Search, Manage and every price. Each user has their own characters, selection and AH blocks. The server
+  never reads local addon files and has no game data download or reload button; uploads come in a later
+  phase. Needs `pip install -e ".[hosted]"` and `FIREBASE_PROJECT_ID`, plus `FIREBASE_API_KEY` and
+  `FIREBASE_AUTH_DOMAIN` for a real Firebase project.
+
+To try hosted mode without a Firebase project, run the Firebase Auth emulator (`firebase.json`; needs
+Java 11+) and point the server at it:
+
+```powershell
+npx firebase-tools emulators:start --only auth --project demo-altarmy   # in its own terminal
+$env:ALTARMY_MODE = "hosted"; $env:FIREBASE_PROJECT_ID = "demo-altarmy"
+$env:FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099"
+altarmy-profit ui
+```
+
+The browser then signs in against the emulator (its Google sign-in is a fake account picker). Tests never
+need Firebase: they pass a fake token verifier to `create_app`.
 
 ### Front-end development
 
@@ -144,6 +173,8 @@ Coarse Thread,120
 - `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices)
   and its sources (CSV, Auctionator SavedVariables via `auctionator.py`)
 - `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
+- `src/altarmy_profit/auth.py`, `users.py` – users and tiers (Firebase token verification in hosted mode,
+  the fixed local user otherwise) and each user's settings and sync state
 - `src/altarmy_profit/store.py` – load the database into engine dataclasses
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/altarmy_profit/cli.py` – command line

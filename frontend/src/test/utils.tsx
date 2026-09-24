@@ -3,12 +3,20 @@ import { MantineProvider } from '@mantine/core'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render } from '@testing-library/react'
 import { vi } from 'vitest'
+import { LOCAL_SESSION, SessionContext, type Session } from '../lib/session'
 
-export function renderWithProviders(ui: ReactElement) {
+/** Hosted mode's sessions, for rendering as a guest or a linked user. */
+export const GUEST: Session = { mode: 'hosted', uid: 'guest', tier: 'free', freeMaxLevel: 30 }
+export const LINKED: Session = { mode: 'hosted', uid: 'g1', tier: 'linked', freeMaxLevel: 30 }
+
+/** Render with Mantine, a fresh query client and a signed-in `session` (default: local mode's user). */
+export function renderWithProviders(ui: ReactElement, session: Session = LOCAL_SESSION) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <MantineProvider env="test">
-      <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
+      <QueryClientProvider client={queryClient}>
+        <SessionContext.Provider value={session}>{ui}</SessionContext.Provider>
+      </QueryClientProvider>
     </MantineProvider>,
   )
 }

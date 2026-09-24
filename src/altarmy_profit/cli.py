@@ -13,6 +13,7 @@ import webbrowser
 from pathlib import Path
 
 from . import altarmy, db, ingest, legacy, prices, service, store, versions
+from .db import LOCAL_UID
 from .engine import Filters, format_money
 from .store import load_market
 from .versions import GameVersion
@@ -44,7 +45,7 @@ def cmd_import_prices(args: argparse.Namespace) -> None:
     gv = args.game_version
     with args.database.begin() as conn:
         try:
-            ah = service.pricing_auction_house(conn, gv)
+            ah = service.pricing_auction_house(conn, LOCAL_UID, gv)
         except ValueError as e:
             sys.exit(str(e))
         n, unresolved = prices.import_csv(conn, gv, ah, Path(args.file))
@@ -72,7 +73,7 @@ def cmd_import_altarmy(args: argparse.Namespace) -> None:
     except ValueError as e:
         sys.exit(str(e))
     with args.database.begin() as conn:
-        store.save_characters(conn, args.game_version, chars)
+        store.save_characters(conn, LOCAL_UID, args.game_version, chars)
     for g in altarmy.groups(chars):
         print(f"{g.realm} ({g.faction}): {', '.join(c.name for c in g.characters)}")
 
@@ -80,7 +81,7 @@ def cmd_import_altarmy(args: argparse.Namespace) -> None:
 def cmd_set_price(args: argparse.Namespace) -> None:
     with args.database.begin() as conn:
         try:
-            ah = service.pricing_auction_house(conn, args.game_version)
+            ah = service.pricing_auction_house(conn, LOCAL_UID, args.game_version)
         except ValueError as e:
             sys.exit(str(e))
         prices.set_price(conn, ah, args.item_id, args.copper)
@@ -93,13 +94,13 @@ def cmd_rank(args: argparse.Namespace) -> None:
     with args.database.begin() as conn:
         if args.realm:
             try:
-                service.select(conn, v.key, args.realm, args.faction)
+                service.select(conn, LOCAL_UID, v.key, args.realm, args.faction)
             except ValueError as e:
                 sys.exit(str(e))
-        sel, chars = service.selected_characters(conn, v.key)
+        sel, chars = service.selected_characters(conn, LOCAL_UID, v.key)
         ah = service.auction_house_of(conn, v.key, sel)
         market = load_market(conn, v.key, ah, ah_cut=v.ah_cut, mail_postage=v.mail_postage)
-        no_ah = frozenset(i for i, _ in store.load_ah_blocked(conn, v.key))
+        no_ah = frozenset(i for i, _ in store.load_ah_blocked(conn, LOCAL_UID, v.key))
     if sel is None:  # no Alt Army import: rank every recipe
         results = market.rank(min_profit=args.min_profit, skill_name=args.skill)
     else:

@@ -19,6 +19,7 @@ from .test_auctionator import _entry, _saved_variables
 
 SV_DIR = "_classic_beta_/WTF/Account/ACCT/SavedVariables"  # under `wow_root`
 FOREVER = "forever"
+ME = db.LOCAL_UID  # local mode's user, who owns what tests store
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")  # e.g. postgresql+psycopg://u:p@localhost/test
 
 

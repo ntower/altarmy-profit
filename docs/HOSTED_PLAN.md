@@ -86,10 +86,11 @@ Realms and prices:
 
 Users:
 
-- `users(uid, created_at, linked_at, tier, trust_score)`; `api_keys(uid, key_hash, label, created_at)`
+- `users(uid, created_at, linked_at, tier, trust_score)`; `api_keys(user_uid, key_hash, label, created_at)`
 - `characters(user_uid, game_version, realm, faction, name, class_file, level, updated_at)`,
   `character_professions`, `character_recipes`: today's tables plus owner and version
-- `user_settings(uid, game_version, selected_auction_house_id)`; `ah_blocked(uid, game_version, item_id)`
+- `user_settings(user_uid, game_version, selected_realm, selected_faction, data_version)`;
+  `ah_blocked(user_uid, game_version, item_id)`
 - `uploads(id, uid, kind, size, received_at, outcome)`
 - `rank_cache(key, uid, auction_house_id, price_version, params_hash, results jsonb, computed_at)`
 
@@ -101,14 +102,27 @@ Postgres. Differences from the list above:
 
 - `price_snapshots.source` also allows `manual` (CLI `set-price`); `recipe_reagents` has a `slot` column
   (DB2 reagent order, which the flow chart's choice paths depend on); `disenchant` has a surrogate id.
-- Until Phase 3, `settings(game_version, key, value)` stands in for `user_settings` (selection, addon
-  paths and mtimes, `data_version`), and characters and `ah_blocked` have no owner column.
 - A snapshot writes observations only for news (no current price, a later day, or a different price
   seen no earlier), so an unchanged re-sync adds nothing; `item_count` records the scan's size.
 - `price_daily` is filled from Auctionator's per-day fields (`h`/`l`/`a`), not aggregated; `median` and
   `price_current`'s 7-day columns stay NULL until the Phase 6 merge job.
 - Monthly partitioning of `price_observations` is Postgres-only and moves to Phase 5.
 - A realm name of `""` is the unnamed auction house that CLI prices use before any characters exist.
+
+Phase 3 status (done): Alembic revision `0002` adds `users`, typed `user_settings`, `local_sync` and the
+owner column, and moves everything stored so far to the local user (`uid` `local`, linked tier).
+Differences from the list above:
+
+- Every owner column is `user_uid` (a foreign key to `users`, cascading).
+- `user_settings` holds the selection as `selected_realm`/`selected_faction`, not an auction house id. A
+  selection is a group of characters, and on Forever both factions share one auction house.
+- The local file sync's state (addon paths, mtimes, last sync, the Auctionator key) is in its own
+  `local_sync(user_uid, game_version, ...)` table, which hosted mode never writes.
+- `price_snapshots.uploader_uid` stays a plain string. On SQLite, a foreign key would mean rebuilding
+  the table, and dropping the old copy cascades into `price_observations`.
+- On SQLite, 0002 rebuilds `characters` and puts the professions and recipes back, because the drop of
+  the old table cascades into them. A test seeds 0001-shaped data and checks it survives on both
+  databases.
 
 ## 5. Auth and access tiers
 
@@ -122,12 +136,21 @@ Postgres. Differences from the list above:
   back. Anonymous users may still upload, since that is how they contribute and
   get identified. Linked tier: everything.
 - Local mode: the dependency returns a fixed local user with the linked tier.
+- Phase 3 wiring: `ALTARMY_MODE` picks the mode. Hosted mode reads `FIREBASE_PROJECT_ID`,
+  `FIREBASE_API_KEY`, `FIREBASE_AUTH_DOMAIN` and optionally `FIREBASE_AUTH_EMULATOR_HOST`; the front end
+  learns them from the public `GET /api/config`. The front end's `AuthProvider` signs in before rendering
+  and sends the ID token as a bearer token.
+- Linked-only routes answer 403 to a free user: characters, selection, rank, evaluate and ah-blocked.
+  The local file sync, source-file lookups, game data update and reload answer 404 in hosted mode.
+  `/api/prices` and `/api/prices/{item_id}` apply the level gate: the list is filtered, and one item
+  above the level gets 403.
 - CLI and tray uploaders authenticate with per-user API keys minted on the site (`POST /api/keys`), not
   Firebase tokens.
 
 ## 6. API changes
 
-New routes: `/api/me`, `/api/versions`, `/api/realms`, `/api/prices/{item_id}` (tiered),
+New routes: `/api/me`, `/api/config` (Phase 3), `/api/versions`, `/api/realms` (Phase 3),
+`/api/prices` and `/api/prices/{item_id}` (tiered, Phase 3),
 `/api/uploads` (multipart `altarmy | auctionator | ahdb` plus `game_version`), `/api/snapshots` (JSON from
 the watcher), `/api/keys`, `/api/characters` (per user), `/api/coverage` (freshness per realm).
 
@@ -192,8 +215,10 @@ Each phase ships on its own and local mode keeps working throughout.
    product and build, per-version data files, AH cut and postage per version, UI version switch.
 2. **Storage layer** (done). SQLAlchemy Core plus Alembic, Postgres support, the snapshot/observation/
    current/daily price tables; local mode moved to one SQLite file and imports the per-version files.
-3. **Auth and tenancy.** Firebase anonymous sign-in and linking, `users`, per-user characters and settings,
-   tiers and the required-level gate.
+3. **Auth and tenancy** (done). Firebase anonymous sign-in and linking, `users`, per-user characters and
+   settings, tiers and the required-level gate, a Prices tab for the free tier; the file sync is local
+   only. Tests use a fake token verifier; hosted mode was checked against the Firebase Auth emulator
+   (sign in anonymously, gated prices, link an email, same uid now linked).
 4. **Uploaders.** Browser upload, CLI watcher, API keys.
 5. **Deploy.** Cloud Run, Cloud SQL, Firebase Hosting, scheduler jobs, deploy from CI; monthly partitions
    for `price_observations`.

@@ -12,3 +12,4 @@ data/*.imported
 node_modules/
 frontend/dist/
 node_modules
+*-debug.log

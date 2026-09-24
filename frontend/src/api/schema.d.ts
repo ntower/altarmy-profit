@@ -96,6 +96,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Config
+         * @description How the front end signs in: not at all (local mode), or with this Firebase project.
+         */
+        get: operations["get_config_api_config_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evaluate": {
         parameters: {
             query?: never;
@@ -133,6 +153,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Me */
+        get: operations["get_me_api_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Prices
+         * @description Items priced on the auction house, by name. The free tier only sees items whose required level is
+         *     at most `free_max_level` (see /api/me).
+         */
+        get: operations["get_prices_api_prices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/prices/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Price History
+         * @description One item's current price and daily history on the auction house (403 for the free tier above its
+         *     level).
+         */
+        get: operations["get_price_history_api_prices__item_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/rank": {
         parameters: {
             query?: never;
@@ -146,6 +225,26 @@ export interface paths {
          *     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set).
          */
         get: operations["get_rank_api_rank_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/realms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Realms
+         * @description The version's auction houses, with how many current prices each has.
+         */
+        get: operations["get_realms_api_realms_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -184,7 +283,7 @@ export interface paths {
         get?: never;
         /**
          * Put Selection
-         * @description Switch realm/faction; that realm's Auctionator prices replace the previous ones.
+         * @description Switch realm/faction; in local mode that realm's Auctionator prices are synced too.
          */
         put: operations["put_selection_api_selection_put"];
         post?: never;
@@ -220,7 +319,8 @@ export interface paths {
         };
         /**
          * Get Status
-         * @description Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten.
+         * @description In local mode also the addon file watcher: re-imports Alt Army and Auctionator data the game has
+         *     rewritten. Hosted mode never reads local files.
          */
         get: operations["get_status_api_status_get"];
         put?: never;
@@ -294,6 +394,19 @@ export interface components {
             /** Item Id */
             item_id: number;
         };
+        /** AuctionHouseOut */
+        AuctionHouseOut: {
+            /** Faction */
+            faction: string;
+            /** Id */
+            id: number;
+            /** Last Scan */
+            last_scan: string | null;
+            /** Prices */
+            prices: number;
+            /** Realm */
+            realm: string;
+        };
         /** CharacterOut */
         CharacterOut: {
             /** Class File */
@@ -310,6 +423,26 @@ export interface components {
             /** Groups */
             groups: components["schemas"]["GroupOut"][];
             selection: components["schemas"]["SelectionModel"] | null;
+        };
+        /** ConfigOut */
+        ConfigOut: {
+            firebase: components["schemas"]["FirebaseOut"] | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "local" | "hosted";
+        };
+        /** DayOut */
+        DayOut: {
+            /** Available */
+            available: number | null;
+            /** Day */
+            day: string;
+            /** High */
+            high: number;
+            /** Low */
+            low: number;
         };
         /**
          * EvaluateRequest
@@ -362,6 +495,20 @@ export interface components {
             postage: number;
             /** Value */
             value: number;
+        };
+        /**
+         * FirebaseOut
+         * @description The Firebase web config the front end signs in with (public values).
+         */
+        FirebaseOut: {
+            /** Api Key */
+            api_key: string;
+            /** Auth Domain */
+            auth_domain: string;
+            /** Emulator Url */
+            emulator_url: string | null;
+            /** Project Id */
+            project_id: string;
         };
         /** GroupOut */
         GroupOut: {
@@ -442,6 +589,18 @@ export interface components {
             /** Value */
             value: number | null;
         };
+        /** Me */
+        Me: {
+            /** Free Max Level */
+            free_max_level: number;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "free" | "linked";
+            /** Uid */
+            uid: string;
+        };
         /**
          * NodeOut
          * @description One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by
@@ -492,6 +651,21 @@ export interface components {
             source: string;
             /** Via */
             via: string;
+        };
+        /** PriceHistoryOut */
+        PriceHistoryOut: {
+            /** Days */
+            days: components["schemas"]["DayOut"][];
+            item: components["schemas"]["ItemInfo"];
+        };
+        /** PricesOut */
+        PricesOut: {
+            /** Gated */
+            gated: boolean;
+            /** Items */
+            items: components["schemas"]["ItemInfo"][];
+            /** Total */
+            total: number;
         };
         /** ProfessionOut */
         ProfessionOut: {
@@ -599,6 +773,8 @@ export interface components {
         Status: {
             /** Altarmy Path */
             altarmy_path: string | null;
+            /** Auction House Id */
+            auction_house_id: number | null;
             /** Auctionator Path */
             auctionator_path: string | null;
             /** Auctionator Realm */
@@ -897,6 +1073,26 @@ export interface operations {
             };
         };
     };
+    get_config_api_config_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConfigOut"];
+                };
+            };
+        };
+    };
     evaluate_api_evaluate_post: {
         parameters: {
             query: {
@@ -967,6 +1163,97 @@ export interface operations {
             };
         };
     };
+    get_me_api_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+        };
+    };
+    get_prices_api_prices_get: {
+        parameters: {
+            query: {
+                auction_house_id: number;
+                /** @description part of the item name, any case; empty: every priced item */
+                q?: string;
+                top?: number;
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PricesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_price_history_api_prices__item_id__get: {
+        parameters: {
+            query: {
+                auction_house_id: number;
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PriceHistoryOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_rank_api_rank_get: {
         parameters: {
             query: {
@@ -1005,6 +1292,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RankResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_realms_api_realms_get: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuctionHouseOut"][];
                 };
             };
             /** @description Validation Error */

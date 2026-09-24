@@ -96,7 +96,8 @@ class Database:
         return engine
 
     def ensure_schema(self) -> None:
-        """Migrate to the newest revision and register the game versions (once per instance)."""
+        """Migrate to the newest revision and register the game versions and the local user (once per
+        instance)."""
         if self._ready:
             return
         engine = self.engine
@@ -106,6 +107,7 @@ class Database:
             with engine.begin() as conn:
                 upgrade(conn)
                 register_versions(conn)
+                register_local_user(conn)
             self._ready = True
 
     def connect(self) -> Connection:
@@ -151,6 +153,16 @@ def register_versions(conn: Connection) -> None:
     upsert(conn, schema.game_versions, rows, ["id"])
 
 
+LOCAL_UID = "local"  # auth.LOCAL_USER.uid: local mode's one user, who owns what the CLI and sync store
+
+
+def register_local_user(conn: Connection) -> None:
+    """The local user's row (linked tier), which revision 0002 also creates for the data it moves."""
+    now = utcnow()
+    row = {"uid": LOCAL_UID, "created_at": now, "linked_at": now, "tier": "linked"}
+    upsert(conn, schema.users, [row], ["uid"], update=[])
+
+
 def upsert(
     conn: Connection,
     table: Table,
@@ -177,23 +189,6 @@ def upsert(
     conn.execute(stmt, [dict(r) for r in rows])
 
 
-def get_setting(conn: Connection, game_version: str, key: str) -> str | None:
-    t = schema.settings
-    value = conn.execute(
-        select(t.c.value).where(t.c.game_version == game_version, t.c.key == key)
-    ).scalar_one_or_none()
-    return None if value is None else str(value)
-
-
-def set_setting(conn: Connection, game_version: str, key: str, value: str) -> None:
-    upsert(
-        conn,
-        schema.settings,
-        [{"game_version": game_version, "key": key, "value": value}],
-        ["game_version", "key"],
-    )
-
-
 def get_build(conn: Connection, game_version: str) -> str | None:
     t = schema.game_versions
     build = conn.execute(select(t.c.build).where(t.c.id == game_version)).scalar_one_or_none()
@@ -205,11 +200,11 @@ def set_build(conn: Connection, game_version: str, build: str) -> None:
     conn.execute(t.update().where(t.c.id == game_version).values(build=build))
 
 
-COUNTED_TABLES = ("items", "recipes", "disenchant", "vendor_items", "characters")
+COUNTED_TABLES = ("items", "recipes", "disenchant", "vendor_items")
 
 
 def count_rows(conn: Connection, table: str, game_version: str) -> int:
-    """Rows of one version in a game-data table, or its characters."""
+    """Rows of one version in a game-data table."""
     if table not in COUNTED_TABLES:
         raise ValueError(f"not a countable table: {table}")
     t = schema.metadata.tables[table]

@@ -8,6 +8,7 @@ import { MantineProvider } from '@mantine/core'
 import { Notifications } from '@mantine/notifications'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App } from './App'
+import { AuthProvider } from './components/AuthProvider'
 
 // No retries: a mistyped path or a failed download should show its error straight away.
 const queryClient = new QueryClient({
@@ -22,7 +23,9 @@ createRoot(root).render(
     <MantineProvider defaultColorScheme="auto">
       <Notifications />
       <QueryClientProvider client={queryClient}>
-        <App />
+        <AuthProvider>
+          <App />
+        </AuthProvider>
       </QueryClientProvider>
     </MantineProvider>
   </StrictMode>,

@@ -92,6 +92,36 @@ def auction_house_for_auctionator_key(conn: Connection, game_version: str, key: 
     return auctionator_auction_house(conn, game_version, key, realm, faction)
 
 
+@dataclass(frozen=True)
+class AuctionHouseInfo:
+    id: int
+    realm: str  # "" for the unnamed auction house
+    faction: str  # "" if both factions share it
+    prices: int  # items with a current price
+    last_scan: datetime | None  # newest price seen
+
+
+def auction_houses(conn: Connection, game_version: str) -> list[AuctionHouseInfo]:
+    """The version's auction houses by realm then faction, with how many prices each has."""
+    t, pc = schema.auction_houses, schema.price_current
+    rows = conn.execute(
+        select(t.c.id, t.c.realm, t.c.faction, func.count(pc.c.item_id), func.max(pc.c.seen_at))
+        .select_from(t.outerjoin(pc, pc.c.auction_house_id == t.c.id))
+        .where(t.c.game_version == game_version)
+        .group_by(t.c.id, t.c.realm, t.c.faction)
+        .order_by(t.c.realm, t.c.faction)
+    )
+    return [
+        AuctionHouseInfo(r[0], r[1], r[2], int(r[3]), None if r[4] is None else db.utc(r[4])) for r in rows
+    ]
+
+
+def game_version_of(conn: Connection, auction_house_id: int) -> str | None:
+    t = schema.auction_houses
+    found = conn.execute(select(t.c.game_version).where(t.c.id == auction_house_id)).scalar_one_or_none()
+    return None if found is None else str(found)
+
+
 def _add_alias(conn: Connection, auction_house_id: int, kind: str, value: str) -> None:
     row = {"auction_house_id": auction_house_id, "kind": kind, "value": value}
     db.upsert(conn, schema.realm_aliases, [row], list(row))
@@ -216,11 +246,16 @@ def record_daily(conn: Connection, auction_house_id: int, item_prices: Mapping[i
 
 
 def record_auctionator(
-    conn: Connection, auction_house_id: int, item_prices: Mapping[int, ItemPrice], scanned_at: datetime
+    conn: Connection,
+    auction_house_id: int,
+    item_prices: Mapping[int, ItemPrice],
+    scanned_at: datetime,
+    uploader_uid: str | None = None,
 ) -> int:
     """One realm of an Auctionator scan: a snapshot plus its daily history. Returns the items moved."""
+    observations = auctionator_observations(item_prices, scanned_at)
     moved = record_snapshot(
-        conn, auction_house_id, AUCTIONATOR, scanned_at, auctionator_observations(item_prices, scanned_at)
+        conn, auction_house_id, AUCTIONATOR, scanned_at, observations, uploader_uid=uploader_uid
     )
     record_daily(conn, auction_house_id, item_prices)
     return moved

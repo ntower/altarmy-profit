@@ -1,7 +1,8 @@
 """Use-cases behind the web API: the shared market cache, search, addon sync and the Manage actions.
 
-No HTTP here. Characters come from the Alt Army addon and prices from Auctionator; `sync` re-reads either
-SavedVariables file whenever the game has rewritten it (on logout or /reload).
+No HTTP here. User state is per `user_uid` (local mode: `auth.LOCAL_USER`). Characters come from the Alt
+Army addon and prices from Auctionator; in local mode `sync` re-reads either SavedVariables file whenever
+the game has rewritten it (on logout or /reload).
 """
 
 from __future__ import annotations
@@ -9,12 +10,12 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Connection
 
-from . import altarmy, auctionator, db, ingest, prices, store
+from . import altarmy, auctionator, db, ingest, prices, store, users
 from .altarmy import Character
 from .engine import (
     AH_CUT,
@@ -151,13 +152,14 @@ def _market(
 
 
 # --- realm/faction selection -----------------------------------------------------------------------
-def selection(conn: Connection, game_version: str, chars: Sequence[Character]) -> Selection | None:
+def selection(
+    conn: Connection, user_uid: str, game_version: str, chars: Sequence[Character]
+) -> Selection | None:
     """The saved realm/faction if it still has characters, else the group with the most characters."""
     groups = altarmy.groups(chars)
-    realm = db.get_setting(conn, game_version, "selected_realm")
-    faction = db.get_setting(conn, game_version, "selected_faction")
+    saved = users.get_settings(conn, user_uid, game_version)
     for g in groups:
-        if (g.realm, g.faction) == (realm, faction):
+        if (g.realm, g.faction) == (saved.selected_realm, saved.selected_faction):
             return Selection(g.realm, g.faction)
     if not groups:
         return None
@@ -165,17 +167,18 @@ def selection(conn: Connection, game_version: str, chars: Sequence[Character]) -
     return Selection(best.realm, best.faction)
 
 
-def select(conn: Connection, game_version: str, realm: str, faction: str) -> None:
-    groups = altarmy.groups(store.load_characters(conn, game_version))
+def select(conn: Connection, user_uid: str, game_version: str, realm: str, faction: str) -> None:
+    groups = altarmy.groups(store.load_characters(conn, user_uid, game_version))
     if not any((g.realm, g.faction) == (realm, faction) for g in groups):
         raise ValueError(f"no characters on {realm} ({faction})")
-    db.set_setting(conn, game_version, "selected_realm", realm)
-    db.set_setting(conn, game_version, "selected_faction", faction)
+    users.update_settings(conn, user_uid, game_version, selected_realm=realm, selected_faction=faction)
 
 
-def selected_characters(conn: Connection, game_version: str) -> tuple[Selection | None, list[Character]]:
-    chars = store.load_characters(conn, game_version)
-    sel = selection(conn, game_version, chars)
+def selected_characters(
+    conn: Connection, user_uid: str, game_version: str
+) -> tuple[Selection | None, list[Character]]:
+    chars = store.load_characters(conn, user_uid, game_version)
+    sel = selection(conn, user_uid, game_version, chars)
     if sel is None:
         return None, []
     return sel, [c for c in chars if (c.realm, c.faction) == (sel.realm, sel.faction)]
@@ -187,15 +190,15 @@ def auction_house_of(conn: Connection, game_version: str, sel: Selection | None)
     return prices.find_auction_house(conn, game_version, realm, faction)
 
 
-def selected_auction_house(conn: Connection, game_version: str) -> int | None:
-    sel, _ = selected_characters(conn, game_version)
+def selected_auction_house(conn: Connection, user_uid: str, game_version: str) -> int | None:
+    sel, _ = selected_characters(conn, user_uid, game_version)
     return auction_house_of(conn, game_version, sel)
 
 
-def pricing_auction_house(conn: Connection, game_version: str) -> int:
+def pricing_auction_house(conn: Connection, user_uid: str, game_version: str) -> int:
     """Where manual and CSV prices go: the selection's auction house, or the unnamed one without
     characters. ValueError if the selected realm has no auction house yet."""
-    sel, _ = selected_characters(conn, game_version)
+    sel, _ = selected_characters(conn, user_uid, game_version)
     if sel is None:
         return prices.unnamed_auction_house(conn, game_version)
     ah = auction_house_of(conn, game_version, sel)
@@ -229,42 +232,56 @@ def default_path(files: Sequence[str], last: str | None) -> str | None:
     return last or (files[0] if files else None)
 
 
-def data_version(conn: Connection, game_version: str) -> int:
-    """Bumped by every sync that changed something, so the front end knows to refetch."""
-    return int(db.get_setting(conn, game_version, "data_version") or 0)
+def data_version(conn: Connection, user_uid: str, game_version: str) -> int:
+    """Bumped whenever the user's characters or prices were re-imported, so the front end refetches."""
+    return users.get_settings(conn, user_uid, game_version).data_version
+
+
+def bump_data_version(conn: Connection, user_uid: str, game_version: str) -> None:
+    users.update_settings(
+        conn, user_uid, game_version, data_version=data_version(conn, user_uid, game_version) + 1
+    )
 
 
 def set_sources(
-    conn: Connection, game_version: str, altarmy_path: str | None, auctionator_path: str | None
+    conn: Connection,
+    user_uid: str,
+    game_version: str,
+    altarmy_path: str | None,
+    auctionator_path: str | None,
 ) -> None:
     """Point the sync at other SavedVariables files; None keeps that source as it is."""
+    changes = {}
     for key, path in (("altarmy_path", altarmy_path), ("auctionator_path", auctionator_path)):
         if path is None:
             continue
         if not Path(path).is_file():
             raise FileNotFoundError(f"File not found: {path}")
-        db.set_setting(conn, game_version, key, path)
+        changes[key] = path
+    users.update_sync(conn, user_uid, game_version, **changes)
 
 
 def sync(
     conn: Connection,
+    user_uid: str,
     game_version: str,
     roots: Iterable[Path] = prices.WOW_ROOTS,
     *,
     force: bool = False,
     flavors: Sequence[str] | None = None,
 ) -> SyncResult:
-    """Re-import Alt Army characters and the selected realm's Auctionator prices if either file changed.
+    """Local mode: re-import the user's Alt Army characters and the selected realm's Auctionator prices if
+    either file changed.
 
     Unset paths are filled in from the files found under the WoW installs in `roots`, looking only in the
     game version's `flavors` folders (e.g. ("_anniversary_",)) when given.
     """
-    found = _Finder(game_version, list(roots), flavors)
+    found = _Finder(user_uid, game_version, list(roots), flavors)
     warnings: list[str] = []
     changed = _sync_altarmy(conn, found, force, warnings)
     changed = _sync_auctionator(conn, found, force, warnings) or changed
     if changed:
-        db.set_setting(conn, game_version, "data_version", str(data_version(conn, game_version) + 1))
+        bump_data_version(conn, user_uid, game_version)
     return SyncResult(changed, warnings)
 
 
@@ -273,9 +290,10 @@ Finder = Callable[[Iterable[Path], Sequence[str] | None], list[Path]]  # prices.
 
 @dataclass(frozen=True)
 class _Finder:
-    """Which version's addon files, and where to look for them: WoW installs and, optionally, only some
-    flavor folders."""
+    """Whose sync, which version's addon files, and where to look for them: WoW installs and, optionally,
+    only some flavor folders."""
 
+    user_uid: str
     game_version: str
     roots: list[Path]
     flavors: Sequence[str] | None
@@ -283,25 +301,30 @@ class _Finder:
     def __call__(self, find: Finder) -> list[Path]:
         return find(self.roots, self.flavors)
 
+    def state(self, conn: Connection) -> users.LocalSync:
+        return users.get_sync(conn, self.user_uid, self.game_version)
+
+    def update(self, conn: Connection, **changes: Any) -> None:
+        users.update_sync(conn, self.user_uid, self.game_version, **changes)
+
 
 def _source(conn: Connection, key: str, find: Finder, found: _Finder) -> Path | None:
-    path = db.get_setting(conn, found.game_version, key)
+    path: str | None = getattr(found.state(conn), key)
     if path is None:
         path = default_path([str(f) for f in found(find)], None)
         if path is None:
             return None
-        db.set_setting(conn, found.game_version, key, path)
+        found.update(conn, **{key: path})
     return Path(path)
 
 
-def _changed_mtime(conn: Connection, game_version: str, path: Path, key: str, force: bool) -> str | None:
-    """The file's mtime if it differs from the one stored under `key` (or `force`), else None."""
-    mtime = str(path.stat().st_mtime_ns)
-    return mtime if force or mtime != db.get_setting(conn, game_version, key) else None
+def _changed_mtime(path: Path, last: int | None, force: bool) -> int | None:
+    """The file's mtime (ns) if it differs from `last` (or `force`), else None."""
+    mtime = path.stat().st_mtime_ns
+    return mtime if force or mtime != last else None
 
 
 def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
-    gv = found.game_version
     path = _source(conn, "altarmy_path", prices.find_altarmy_files, found)
     if path is None:
         warnings.append("No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab.")
@@ -309,7 +332,7 @@ def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[
     if not path.is_file():
         warnings.append(f"Alt Army file not found: {path}")
         return False
-    mtime = _changed_mtime(conn, gv, path, "altarmy_mtime", force)
+    mtime = _changed_mtime(path, found.state(conn).altarmy_mtime, force)
     if mtime is None:
         return False
     try:
@@ -317,17 +340,16 @@ def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[
     except ValueError as e:
         warnings.append(f"Could not read {path}: {e}")
         return False
-    store.save_characters(conn, gv, chars)
-    db.set_setting(conn, gv, "altarmy_mtime", mtime)
-    db.set_setting(conn, gv, "altarmy_synced", _now())
+    store.save_characters(conn, found.user_uid, found.game_version, chars)
+    found.update(conn, altarmy_mtime=mtime, altarmy_synced=db.utcnow())
     return True
 
 
 def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
     """Record the selected realm's scan when the file (or the selection) changed. Each auction house
     keeps its own prices, so a file without the realm leaves the prices alone and only warns."""
-    gv = found.game_version
-    sel = selection(conn, gv, store.load_characters(conn, gv))
+    uid, gv = found.user_uid, found.game_version
+    sel = selection(conn, uid, gv, store.load_characters(conn, uid, gv))
     if sel is None:
         return False  # no characters yet, so no realm to price
     path = _source(conn, "auctionator_path", prices.find_auctionator_files, found)
@@ -337,11 +359,12 @@ def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: l
     if not path.is_file():
         warnings.append(f"Auctionator file not found: {path}")
         return False
+    state = found.state(conn)
     wanted = f"{sel.realm}\t{sel.faction}"
-    moved = wanted != db.get_setting(conn, gv, "auctionator_for")
-    mtime = _changed_mtime(conn, gv, path, "auctionator_mtime", force or moved)
+    moved = wanted != state.auctionator_for
+    mtime = _changed_mtime(path, state.auctionator_mtime, force or moved)
     if mtime is None:
-        if not db.get_setting(conn, gv, "auctionator_realm"):
+        if not state.auctionator_realm:
             warnings.append(_no_prices(sel))
         return False
     try:
@@ -354,18 +377,16 @@ def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: l
         warnings.append(_no_prices(sel))
     else:
         ah = prices.auctionator_auction_house(conn, gv, key, sel.realm, sel.faction)
-        prices.record_auctionator(conn, ah, realms[key], prices.file_time(path))
+        prices.record_auctionator(conn, ah, realms[key], prices.file_time(path), uploader_uid=uid)
         prices.prune(conn)
-    db.set_setting(conn, gv, "auctionator_realm", key or "")
-    db.set_setting(conn, gv, "auctionator_for", wanted)
-    db.set_setting(conn, gv, "auctionator_mtime", mtime)
-    db.set_setting(conn, gv, "auctionator_synced", _now())
+    found.update(
+        conn,
+        auctionator_realm=key or "",
+        auctionator_for=wanted,
+        auctionator_mtime=mtime,
+        auctionator_synced=db.utcnow(),
+    )
     return True
-
-
-def _now() -> str:
-    """UTC, as the API sends timestamps."""
-    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _no_prices(sel: Selection) -> str:

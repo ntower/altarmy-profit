@@ -9,12 +9,9 @@ from altarmy_profit import db, schema
 from .conftest import FOREVER
 
 
-def test_settings_roundtrip_per_version(conn: Connection) -> None:
-    assert db.get_setting(conn, FOREVER, "x") is None
-    db.set_setting(conn, FOREVER, "x", "1")
-    db.set_setting(conn, FOREVER, "x", "2")
-    assert db.get_setting(conn, FOREVER, "x") == "2"
-    assert db.get_setting(conn, "tbc", "x") is None
+def test_the_local_user_is_registered(conn: Connection) -> None:
+    u = schema.users
+    assert [tuple(r) for r in conn.execute(select(u.c.uid, u.c.tier))] == [(db.LOCAL_UID, "linked")]
 
 
 def test_game_versions_are_registered_and_hold_the_build(conn: Connection) -> None:
@@ -37,19 +34,20 @@ def test_upsert_updates_ignores_or_filters(conn: Connection) -> None:
     db.upsert(conn, t, [], keys)
     assert sorted(conn.execute(select(t.c.item_id)).scalars()) == [1, 2]
 
-    s = schema.settings
-    skeys = ["game_version", "key"]
-    db.upsert(conn, s, [{"game_version": FOREVER, "key": "k", "value": "5"}], skeys)
-    db.upsert(conn, s, [{"game_version": FOREVER, "key": "k", "value": "3"}], skeys, where=s.c.value < "4")
-    assert db.get_setting(conn, FOREVER, "k") == "5"  # the where clause kept the stored row
-    db.upsert(conn, s, [{"game_version": FOREVER, "key": "k", "value": "7"}], skeys, where=s.c.value < "6")
-    assert db.get_setting(conn, FOREVER, "k") == "7"
+    s = schema.user_settings
+    skeys = ["user_uid", "game_version"]
+    row = {"user_uid": db.LOCAL_UID, "game_version": FOREVER}
+    db.upsert(conn, s, [{**row, "data_version": 5}], skeys)
+    db.upsert(conn, s, [{**row, "data_version": 3}], skeys, where=s.c.data_version < 4)
+    assert conn.execute(select(s.c.data_version)).scalar_one() == 5  # the where clause kept the stored row
+    db.upsert(conn, s, [{**row, "data_version": 7}], skeys, where=s.c.data_version < 6)
+    assert conn.execute(select(s.c.data_version)).scalar_one() == 7
 
 
 def test_count_rows(conn: Connection) -> None:
     assert db.count_rows(conn, "items", FOREVER) == 0
     with pytest.raises(ValueError, match="countable"):
-        db.count_rows(conn, "settings", FOREVER)
+        db.count_rows(conn, "characters", FOREVER)  # per user: store.count_characters
 
 
 def test_timestamps() -> None:

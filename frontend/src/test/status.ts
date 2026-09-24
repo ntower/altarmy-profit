@@ -15,6 +15,7 @@ export const status = (over: Partial<Status> = {}): Status => ({
   auctionator_path: 'C:\\WoW\\_classic_beta_\\WTF\\Account\\A\\SavedVariables\\Auctionator.lua',
   auctionator_realm: 'ClassicBetaPvE',
   selection: { realm: 'Classic Beta PvE', faction: 'Horde' },
+  auction_house_id: 1,
   data_version: 1,
   warnings: [],
   ...over,

@@ -6,11 +6,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import select
 
-from altarmy_profit import db, legacy, prices, schema, store
+from altarmy_profit import db, legacy, prices, schema, store, users
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.versions import VERSIONS
 
-from .conftest import FOREVER
+from .conftest import FOREVER, ME
 
 
 def old_file(path: Path, build: str | None, *, oldest_items: bool = False) -> sqlite3.Connection:
@@ -76,10 +76,12 @@ def test_import_copies_everything_and_renames_the_file(database: db.Database, tm
     with database.begin() as conn:
         assert db.get_build(conn, "tbc") == "2.5.6.69795"
         assert db.get_build(conn, FOREVER) is None
-        assert db.get_setting(conn, "tbc", "selected_realm") == "Dreamscythe"
-        assert db.get_setting(conn, "tbc", "data_version") == "3"
-        assert db.get_setting(conn, "tbc", "auctionator_mtime") is None  # the next sync re-reads the file
-        assert store.load_characters(conn, "tbc") == [
+        assert users.get_settings(conn, ME, "tbc") == users.UserSettings("Dreamscythe", "Horde", 3)
+        sync = users.get_sync(conn, ME, "tbc")
+        assert sync.altarmy_path == "C:\\x.lua"
+        assert sync.auctionator_for == "Dreamscythe\tHorde"
+        assert sync.auctionator_mtime is None  # the next sync re-reads the file
+        assert store.load_characters(conn, ME, "tbc") == [
             Character(
                 "Dreamscythe",
                 "Frell",
@@ -92,7 +94,7 @@ def test_import_copies_everything_and_renames_the_file(database: db.Database, tm
                 ),
             )
         ]
-        assert store.load_ah_blocked(conn, "tbc") == [(3, "2026-09-20 10:00:00")]
+        assert store.load_ah_blocked(conn, ME, "tbc") == [(3, "2026-09-20 10:00:00")]
 
         ah = prices.find_auction_house(conn, "tbc", "Dreamscythe", "Horde")
         assert ah is not None and prices.find_auction_house(conn, "tbc", "Dreamscythe", "Alliance") is None
@@ -125,13 +127,13 @@ def test_import_without_a_synced_realm_uses_the_unnamed_auction_house(
 
 def test_import_replaces_what_the_version_had(database: db.Database, tmp_path: Path) -> None:
     with database.begin() as conn:
-        store.save_characters(conn, "tbc", [Character("Old", "Gone", "Horde", "MAGE", 1, ())])
-        store.save_characters(conn, FOREVER, [Character("Stays", "Here", "Horde", "MAGE", 1, ())])
+        store.save_characters(conn, ME, "tbc", [Character("Old", "Gone", "Horde", "MAGE", 1, ())])
+        store.save_characters(conn, ME, FOREVER, [Character("Stays", "Here", "Horde", "MAGE", 1, ())])
     fill(old_file(legacy.version_file("tbc", tmp_path), None))
     legacy.import_version_files(database, tmp_path)
     with database.begin() as conn:
-        assert [c.name for c in store.load_characters(conn, "tbc")] == ["Frell"]
-        assert [c.name for c in store.load_characters(conn, FOREVER)] == ["Here"]
+        assert [c.name for c in store.load_characters(conn, ME, "tbc")] == ["Frell"]
+        assert [c.name for c in store.load_characters(conn, ME, FOREVER)] == ["Here"]
 
 
 @pytest.mark.parametrize(
@@ -157,4 +159,4 @@ def test_the_pre_versions_file_is_imported_too(database: db.Database, tmp_path: 
     fill(old_file(tmp_path / "altarmy-profit.db", "2.5.6.69795"))
     assert legacy.import_version_files(database, tmp_path, VERSIONS) == [legacy.version_file("tbc", tmp_path)]
     with database.begin() as conn:
-        assert [c.name for c in store.load_characters(conn, "tbc")] == ["Frell"]
+        assert [c.name for c in store.load_characters(conn, ME, "tbc")] == ["Frell"]

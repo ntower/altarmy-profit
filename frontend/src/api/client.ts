@@ -1,4 +1,5 @@
 import createClient from 'openapi-fetch'
+import { getIdToken } from '../lib/auth'
 import type { components, paths } from './schema'
 
 export type Status = components['schemas']['Status']
@@ -19,11 +20,26 @@ export type Sources = components['schemas']['Sources']
 export type UpdateResult = components['schemas']['UpdateResult']
 /** Items never sold on the AH, with tooltip details. */
 export type AhBlocked = components['schemas']['AhBlocked']
+export type AuctionHouse = components['schemas']['AuctionHouseOut']
+/** Items priced on an auction house; `gated` if the free tier's level limit left some out. */
+export type Prices = components['schemas']['PricesOut']
+export type PriceHistory = components['schemas']['PriceHistoryOut']
+export type Config = components['schemas']['ConfigOut']
+export type Me = components['schemas']['Me']
 
 export const client = createClient<paths>({
   baseUrl: globalThis.location?.origin ?? '',
   // Look fetch up per call (not once at import) so tests can stub it.
   fetch: (request) => globalThis.fetch(request),
+})
+
+// Hosted mode: every request carries the signed-in user's Firebase ID token.
+client.use({
+  async onRequest({ request }) {
+    const token = await getIdToken()
+    if (token) request.headers.set('Authorization', `Bearer ${token}`)
+    return request
+  },
 })
 
 export class ApiError extends Error {

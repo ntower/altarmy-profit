@@ -4,7 +4,7 @@ from sqlalchemy import Connection
 
 from altarmy_profit import altarmy, ingest, store
 
-from .conftest import FOREVER, set_prices
+from .conftest import FOREVER, ME, set_prices
 from .test_altarmy import ALTARMY_SV
 
 
@@ -47,26 +47,26 @@ def test_load_market_keeps_spell_ids(db2_paths: dict[str, Path], conn: Connectio
 
 def test_characters_round_trip_and_replace(conn: Connection) -> None:
     chars = altarmy.parse_characters(ALTARMY_SV)
-    store.save_characters(conn, FOREVER, chars)
-    store.save_characters(conn, "tbc", chars[:2])
-    assert store.load_characters(conn, FOREVER) == chars
-    store.save_characters(conn, FOREVER, chars[:1])
-    assert store.load_characters(conn, FOREVER) == chars[:1]
-    assert store.load_characters(conn, "tbc") == chars[:2]  # each version has its own characters
+    store.save_characters(conn, ME, FOREVER, chars)
+    store.save_characters(conn, ME, "tbc", chars[:2])
+    assert store.load_characters(conn, ME, FOREVER) == chars
+    store.save_characters(conn, ME, FOREVER, chars[:1])
+    assert store.load_characters(conn, ME, FOREVER) == chars[:1]
+    assert store.load_characters(conn, ME, "tbc") == chars[:2]  # each version has its own characters
 
 
 def test_ah_blocked_round_trip_survives_ingest(db2_paths: dict[str, Path], conn: Connection) -> None:
     ingest.build_db(db2_paths, conn, FOREVER)
-    assert store.load_ah_blocked(conn, FOREVER) == []
-    store.set_ah_blocked(conn, FOREVER, 3, True)
-    store.set_ah_blocked(conn, FOREVER, 3, True)  # already there: kept once
-    store.set_ah_blocked(conn, FOREVER, 1, True)
+    assert store.load_ah_blocked(conn, ME, FOREVER) == []
+    store.set_ah_blocked(conn, ME, FOREVER, 3, True)
+    store.set_ah_blocked(conn, ME, FOREVER, 3, True)  # already there: kept once
+    store.set_ah_blocked(conn, ME, FOREVER, 1, True)
     ingest.build_db(db2_paths, conn, FOREVER)
-    assert sorted(i for i, _ in store.load_ah_blocked(conn, FOREVER)) == [1, 3]
-    assert store.load_ah_blocked(conn, "tbc") == []
-    store.set_ah_blocked(conn, FOREVER, 1, False)
-    store.set_ah_blocked(conn, FOREVER, 42, False)  # not there: nothing to do
-    ((item_id, added_at),) = store.load_ah_blocked(conn, FOREVER)
+    assert sorted(i for i, _ in store.load_ah_blocked(conn, ME, FOREVER)) == [1, 3]
+    assert store.load_ah_blocked(conn, ME, "tbc") == []
+    store.set_ah_blocked(conn, ME, FOREVER, 1, False)
+    store.set_ah_blocked(conn, ME, FOREVER, 42, False)  # not there: nothing to do
+    ((item_id, added_at),) = store.load_ah_blocked(conn, ME, FOREVER)
     assert item_id == 3
     assert len(added_at) == len("2026-09-24 20:53:16")  # UTC text
 

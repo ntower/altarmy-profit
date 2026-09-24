@@ -12,6 +12,7 @@ import {
   useSyncNow,
   useUpdateGameData,
 } from '../api/queries'
+import { useSession } from '../lib/session'
 import { ItemLink } from './ItemTooltip'
 
 function AhBlockedCard() {
@@ -187,7 +188,19 @@ function AddonDataCard() {
   )
 }
 
+/** Hosted mode has only the AH blocks: the server keeps its own game data and never reads local files. */
 export function ManageTab() {
+  const { mode } = useSession()
+  return mode === 'local' ? (
+    <LocalManage />
+  ) : (
+    <Stack>
+      <AhBlockedCard />
+    </Stack>
+  )
+}
+
+function LocalManage() {
   const reload = useReload()
   return (
     <Stack>

@@ -44,6 +44,46 @@
         "title": "AhBlockedItem",
         "type": "object"
       },
+      "AuctionHouseOut": {
+        "properties": {
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_scan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scan"
+          },
+          "prices": {
+            "title": "Prices",
+            "type": "integer"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "realm",
+          "faction",
+          "prices",
+          "last_scan"
+        ],
+        "title": "AuctionHouseOut",
+        "type": "object"
+      },
       "CharacterOut": {
         "properties": {
           "class_file": {
@@ -100,6 +140,69 @@
           "selection"
         ],
         "title": "Characters",
+        "type": "object"
+      },
+      "ConfigOut": {
+        "properties": {
+          "firebase": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FirebaseOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "enum": [
+              "local",
+              "hosted"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "firebase"
+        ],
+        "title": "ConfigOut",
+        "type": "object"
+      },
+      "DayOut": {
+        "properties": {
+          "available": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available"
+          },
+          "day": {
+            "title": "Day",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "integer"
+          },
+          "low": {
+            "title": "Low",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "day",
+          "low",
+          "high",
+          "available"
+        ],
+        "title": "DayOut",
         "type": "object"
       },
       "EvaluateRequest": {
@@ -205,6 +308,42 @@
           "mail_to"
         ],
         "title": "ExitOut",
+        "type": "object"
+      },
+      "FirebaseOut": {
+        "description": "The Firebase web config the front end signs in with (public values).",
+        "properties": {
+          "api_key": {
+            "title": "Api Key",
+            "type": "string"
+          },
+          "auth_domain": {
+            "title": "Auth Domain",
+            "type": "string"
+          },
+          "emulator_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emulator Url"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key",
+          "auth_domain",
+          "project_id",
+          "emulator_url"
+        ],
+        "title": "FirebaseOut",
         "type": "object"
       },
       "GroupOut": {
@@ -446,6 +585,33 @@
         "title": "MaterialOut",
         "type": "object"
       },
+      "Me": {
+        "properties": {
+          "free_max_level": {
+            "title": "Free Max Level",
+            "type": "integer"
+          },
+          "tier": {
+            "enum": [
+              "free",
+              "linked"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "uid": {
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "tier",
+          "free_max_level"
+        ],
+        "title": "Me",
+        "type": "object"
+      },
       "NodeOut": {
         "description": "One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by\nanother character who then mails it on.",
         "properties": {
@@ -563,6 +729,52 @@
           "crafter"
         ],
         "title": "OptionOut",
+        "type": "object"
+      },
+      "PriceHistoryOut": {
+        "properties": {
+          "days": {
+            "items": {
+              "$ref": "#/components/schemas/DayOut"
+            },
+            "title": "Days",
+            "type": "array"
+          },
+          "item": {
+            "$ref": "#/components/schemas/ItemInfo"
+          }
+        },
+        "required": [
+          "item",
+          "days"
+        ],
+        "title": "PriceHistoryOut",
+        "type": "object"
+      },
+      "PricesOut": {
+        "properties": {
+          "gated": {
+            "title": "Gated",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ItemInfo"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "gated"
+        ],
+        "title": "PricesOut",
         "type": "object"
       },
       "ProfessionOut": {
@@ -859,6 +1071,17 @@
             ],
             "title": "Altarmy Path"
           },
+          "auction_house_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auction House Id"
+          },
           "auctionator_path": {
             "anyOf": [
               {
@@ -981,6 +1204,7 @@
           "auctionator_path",
           "auctionator_realm",
           "selection",
+          "auction_house_id",
           "data_version",
           "warnings"
         ],
@@ -1154,6 +1378,13 @@
         "title": "VersionOut",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "description": "Firebase ID token (hosted mode only)",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -1204,6 +1435,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Ah Blocked"
       }
     },
@@ -1259,6 +1495,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Unblock Ah"
       },
       "put": {
@@ -1312,6 +1553,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Block Ah"
       }
     },
@@ -1357,6 +1603,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Altarmy Files"
       }
     },
@@ -1402,6 +1653,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Auctionator Files"
       }
     },
@@ -1447,7 +1703,31 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Characters"
+      }
+    },
+    "/api/config": {
+      "get": {
+        "description": "How the front end signs in: not at all (local mode), or with this Firebase project.",
+        "operationId": "get_config_api_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfigOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Config"
       }
     },
     "/api/evaluate": {
@@ -1503,6 +1783,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Evaluate"
       }
     },
@@ -1561,6 +1846,182 @@
           }
         },
         "summary": "Update Game Data"
+      }
+    },
+    "/api/me": {
+      "get": {
+        "operationId": "get_me_api_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Me"
+      }
+    },
+    "/api/prices": {
+      "get": {
+        "description": "Items priced on the auction house, by name. The free tier only sees items whose required level is\nat most `free_max_level` (see /api/me).",
+        "operationId": "get_prices_api_prices_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auction_house_id",
+            "required": true,
+            "schema": {
+              "title": "Auction House Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "part of the item name, any case; empty: every priced item",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "description": "part of the item name, any case; empty: every priced item",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "top",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Top",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PricesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Prices"
+      }
+    },
+    "/api/prices/{item_id}": {
+      "get": {
+        "description": "One item's current price and daily history on the auction house (403 for the free tier above its\nlevel).",
+        "operationId": "get_price_history_api_prices__item_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "auction_house_id",
+            "required": true,
+            "schema": {
+              "title": "Auction House Id",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PriceHistoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Price History"
       }
     },
     "/api/rank": {
@@ -1773,7 +2234,67 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Rank"
+      }
+    },
+    "/api/realms": {
+      "get": {
+        "description": "The version's auction houses, with how many current prices each has.",
+        "operationId": "get_realms_api_realms_get",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AuctionHouseOut"
+                  },
+                  "title": "Response Get Realms Api Realms Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Realms"
       }
     },
     "/api/reload": {
@@ -1819,12 +2340,17 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Reload"
       }
     },
     "/api/selection": {
       "put": {
-        "description": "Switch realm/faction; that realm's Auctionator prices replace the previous ones.",
+        "description": "Switch realm/faction; in local mode that realm's Auctionator prices are synced too.",
         "operationId": "put_selection_api_selection_put",
         "parameters": [
           {
@@ -1875,6 +2401,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Put Selection"
       }
     },
@@ -1930,12 +2461,17 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Put Sources"
       }
     },
     "/api/status": {
       "get": {
-        "description": "Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten.",
+        "description": "In local mode also the addon file watcher: re-imports Alt Army and Auctionator data the game has\nrewritten. Hosted mode never reads local files.",
         "operationId": "get_status_api_status_get",
         "parameters": [
           {
@@ -1976,6 +2512,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Status"
       }
     },
@@ -2022,6 +2563,11 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Sync Now"
       }
     },

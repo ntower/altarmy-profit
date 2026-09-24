@@ -1,8 +1,9 @@
 """The database schema as SQLAlchemy Core tables, shared by SQLite (local mode, tests) and Postgres (hosted).
 
 Alembic migrations (`migrations/`) create it; a test checks they match. All money is integer copper. Game
-data and local state are keyed by `game_version`; prices by auction house, whose row carries the version.
-Phase 3 adds a user id to the local-state tables (settings, characters, ah_blocked).
+data is keyed by `game_version`; prices by auction house, whose row carries the version. User state
+(settings, characters, AH blocks, the local file sync) is keyed by `user_uid` and `game_version`; local mode
+has one user, `auth.LOCAL_USER` ("local").
 """
 
 from __future__ import annotations
@@ -37,12 +38,23 @@ metadata = MetaData(
 )
 
 PRICE_SOURCES = ("auctionator", "ahdb", "blizzard_api", "csv", "manual")
+TIERS = ("free", "linked")
 SNAPSHOT_STATUSES = ("accepted", "quarantined")
 
 
 def _version(primary_key: bool = True) -> Column[str]:
     return Column(
         "game_version", String(16), ForeignKey("game_versions.id"), primary_key=primary_key, nullable=False
+    )
+
+
+def _owner(primary_key: bool = True) -> Column[str]:
+    return Column(
+        "user_uid",
+        String(128),
+        ForeignKey("users.uid", ondelete="CASCADE"),
+        primary_key=primary_key,
+        nullable=False,
     )
 
 
@@ -144,13 +156,46 @@ vendor_items = Table(
     Column("item_id", Integer, primary_key=True, autoincrement=False),
 )
 
-# --- local state (per user from Phase 3) -----------------------------------------------------------
-settings = Table(
-    "settings",
+# --- users and their state ------------------------------------------------------------------------
+# Firebase uids (hosted mode) or "local". The tier is the one the user's last token carried.
+users = Table(
+    "users",
     metadata,
+    Column("uid", String(128), primary_key=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("linked_at", DateTime(timezone=True)),  # first seen with a linked (non-anonymous) account
+    Column("tier", String(16), nullable=False),
+    Column("trust_score", Float, nullable=False, default=1.0, server_default="1"),  # used from Phase 6
+    CheckConstraint(f"tier IN ({_in(TIERS)})", name="tier"),
+)
+
+user_settings = Table(
+    "user_settings",
+    metadata,
+    _owner(),
     _version(),
-    Column("key", String(64), primary_key=True),
-    Column("value", Text, nullable=False),
+    Column("selected_realm", Text),  # whose characters count, with selected_faction; NULL: the largest group
+    Column("selected_faction", String(16)),
+    # bumped whenever the user's characters or prices were re-imported, so the front end refetches
+    Column("data_version", Integer, nullable=False, default=0, server_default="0"),
+)
+
+# Local mode's addon file sync: which SavedVariables files it reads and when they last changed.
+local_sync = Table(
+    "local_sync",
+    metadata,
+    _owner(),
+    _version(),
+    Column("altarmy_path", Text),
+    Column("altarmy_mtime", BigInteger),  # ns
+    Column("altarmy_synced", DateTime(timezone=True)),
+    Column("auctionator_path", Text),
+    Column("auctionator_mtime", BigInteger),
+    Column(
+        "auctionator_synced", DateTime(timezone=True)
+    ),  # set even when the scan had no prices for the realm
+    Column("auctionator_realm", Text),  # Auctionator's key for the selection; "" if it has none
+    Column("auctionator_for", Text),  # the selection the prices were recorded for: realm, a tab, faction
 )
 
 # Characters from the Alt Army addon's SavedVariables, replaced wholesale on every import.
@@ -158,13 +203,14 @@ characters = Table(
     "characters",
     metadata,
     Column("id", Integer, primary_key=True),
+    _owner(primary_key=False),
     _version(primary_key=False),
     Column("realm", Text, nullable=False),
     Column("name", Text, nullable=False),
     Column("faction", String(16), nullable=False),  # Horde | Alliance | "" (never scanned)
     Column("class_file", String(32), nullable=False),  # e.g. PALADIN
     Column("level", Integer, nullable=False),
-    UniqueConstraint("game_version", "realm", "name"),
+    UniqueConstraint("user_uid", "game_version", "realm", "name"),
 )
 
 character_professions = Table(
@@ -188,6 +234,7 @@ character_recipes = Table(
 ah_blocked = Table(
     "ah_blocked",
     metadata,
+    _owner(),
     _version(),
     Column("item_id", Integer, primary_key=True, autoincrement=False),
     Column("added_at", DateTime(timezone=True), nullable=False),
@@ -233,7 +280,9 @@ price_snapshots = Table(
         index=True,
     ),
     Column("source", String(16), nullable=False),
-    Column("uploader_uid", String(128)),  # who sent it; a users foreign key from Phase 3
+    # who sent it (a users.uid). No foreign key: adding one makes SQLite rebuild this table, whose drop
+    # would cascade into price_observations.
+    Column("uploader_uid", String(128)),
     Column("scanned_at", DateTime(timezone=True), nullable=False),
     Column("received_at", DateTime(timezone=True), nullable=False),
     Column("item_count", Integer, nullable=False),  # items in the scan (observations hold only news)

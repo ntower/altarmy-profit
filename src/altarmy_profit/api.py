@@ -3,6 +3,12 @@
 Money is integer copper on the wire; the front end formats it. Handlers are plain `def` so FastAPI runs
 them in its threadpool: the game data download blocks for a while and must not stall other requests.
 Each handler opens its own connection from the shared `db.Database` (never shared across threads).
+
+Every route but /api/config and /api/versions has a user (`CurrentUser`). Local mode (`ALTARMY_MODE=local`,
+the default) always has `auth.LOCAL_USER`; hosted mode verifies the Firebase ID token sent as a bearer
+token. Rankings, characters and AH blocks need the linked tier (`LinkedUser`, else 403); the free tier sees
+prices only for items up to `auth.FREE_TIER_MAX_LEVEL`. The addon file sync, source files and game data
+update exist only in local mode (`LOCAL_ONLY`, else 404).
 """
 
 from __future__ import annotations
@@ -16,11 +22,12 @@ from pathlib import Path
 from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import Connection
 
-from . import altarmy, db, engine, prices, service, store, versions
+from . import altarmy, auth, db, engine, prices, service, store, users, versions
 from .store import CACHE_DIR
 from .versions import GameVersion, GameVersionKey
 
@@ -39,7 +46,7 @@ class SelectionModel(BaseModel):
 
 
 class Status(BaseModel):
-    db_path: str  # the SQLite file, or the database URL without its password
+    db_path: str  # the SQLite file, or the database URL without its password; "" in hosted mode
     build: str | None
     items: int
     recipes: int
@@ -52,6 +59,7 @@ class Status(BaseModel):
     auctionator_path: str | None
     auctionator_realm: str | None  # Auctionator's key for the selection; "" if it has none
     selection: SelectionModel | None
+    auction_house_id: int | None  # the selection's auction house (the unnamed one without characters)
     data_version: int  # bumped whenever a sync re-imported something: refetch characters and results
     warnings: list[str]  # addon files missing, unreadable, or without prices for the selection
 
@@ -279,6 +287,52 @@ class VersionOut(BaseModel):
     recipes: int
 
 
+class FirebaseOut(BaseModel):
+    """The Firebase web config the front end signs in with (public values)."""
+
+    api_key: str
+    auth_domain: str
+    project_id: str
+    emulator_url: str | None  # the Firebase Auth emulator, when developing
+
+
+class ConfigOut(BaseModel):
+    mode: auth.Mode  # local: no sign-in, one user; hosted: Firebase sign-in
+    firebase: FirebaseOut | None  # hosted mode only
+
+
+class Me(BaseModel):
+    uid: str
+    tier: auth.Tier  # free: prices up to free_max_level only; linked: everything
+    free_max_level: int  # the free tier's highest required level
+
+
+class AuctionHouseOut(BaseModel):
+    id: int
+    realm: str  # "" for the unnamed auction house (prices set by hand or CSV)
+    faction: str  # "" if both factions share it
+    prices: int  # items with a current price
+    last_scan: str | None  # newest price seen, "YYYY-MM-DD HH:MM:SS" UTC
+
+
+class PricesOut(BaseModel):
+    items: list[ItemInfo]  # by name; `ah_price` is the auction house's current price
+    total: int  # how many items matched
+    gated: bool  # True if items above the free tier's level were left out
+
+
+class DayOut(BaseModel):
+    day: str  # YYYY-MM-DD
+    low: int  # copper
+    high: int
+    available: int | None
+
+
+class PriceHistoryOut(BaseModel):
+    item: ItemInfo
+    days: list[DayOut]  # newest first
+
+
 # --- app state and helpers -------------------------------------------------------------------------
 @dataclass
 class AppState:
@@ -312,6 +366,65 @@ def _state(
 State = Annotated[AppState, Depends(_state)]
 
 
+@dataclass(frozen=True)
+class AuthState:
+    mode: auth.Mode
+    database: db.Database
+    verifier: auth.TokenVerifier | None  # hosted mode
+    firebase: auth.FirebaseConfig | None  # hosted mode
+
+
+def _auth(request: Request) -> AuthState:
+    state: AuthState = request.app.state.auth
+    return state
+
+
+_bearer = HTTPBearer(auto_error=False, description="Firebase ID token (hosted mode only)")
+
+
+def _current_user(
+    request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
+) -> auth.User:
+    """The local user in local mode; in hosted mode, whoever the bearer token says (401 without one)."""
+    a = _auth(request)
+    if a.mode == "local":
+        return auth.LOCAL_USER
+    if credentials is None or a.verifier is None:
+        raise HTTPException(401, "Sign in first.", headers={"WWW-Authenticate": "Bearer"})
+    try:
+        user = auth.user_from_claims(a.verifier.verify(credentials.credentials))
+    except auth.InvalidToken as e:
+        raise HTTPException(401, f"Invalid sign-in token: {e}", headers={"WWW-Authenticate": "Bearer"}) from e
+    with a.database.begin() as conn:
+        users.ensure_user(conn, user)
+    return user
+
+
+CurrentUser = Annotated[auth.User, Depends(_current_user)]
+
+
+def _linked_user(user: CurrentUser) -> auth.User:
+    if not user.linked:
+        raise HTTPException(403, "Link your account to see rankings, characters and AH blocks.")
+    return user
+
+
+LinkedUser = Annotated[auth.User, Depends(_linked_user)]
+
+
+def _local_only(request: Request) -> None:
+    if _auth(request).mode != "local":
+        raise HTTPException(404, "Not available in hosted mode.")
+
+
+LOCAL_ONLY = [Depends(_local_only)]  # route dependencies of the local file sync and admin actions
+
+
+def _max_level(user: auth.User) -> int | None:
+    """The highest required level whose prices the user may see; None: any."""
+    return None if user.linked else auth.FREE_TIER_MAX_LEVEL
+
+
 @contextmanager
 def _connect(state: AppState) -> Iterator[Connection]:
     """A connection in a transaction, committed when the block succeeds."""
@@ -334,11 +447,11 @@ def _http_errors() -> Iterator[None]:
         raise HTTPException(500, str(e)) from e
 
 
-def _sync(state: AppState, conn: Connection, force: bool = False) -> list[str]:
+def _sync(state: AppState, conn: Connection, user: auth.User, force: bool = False) -> list[str]:
     """Re-import whichever addon file the game rewrote; returns the sync's warnings."""
     with state.sync_lock:
         result = service.sync(
-            conn, state.key, state.wow_roots, force=force, flavors=state.version.flavor_folders
+            conn, user.uid, state.key, state.wow_roots, force=force, flavors=state.version.flavor_folders
         )
     if result.changed:
         state.cache.invalidate()
@@ -349,25 +462,29 @@ def _selection_model(sel: service.Selection | None) -> SelectionModel | None:
     return None if sel is None else SelectionModel(realm=sel.realm, faction=sel.faction)
 
 
-def _status(state: AppState, conn: Connection, warnings: list[str] | None = None) -> Status:
-    gv = state.key
-    sel, _ = service.selected_characters(conn, gv)
+def _status(
+    state: AppState, conn: Connection, user: auth.User, hosted: bool, warnings: list[str] | None = None
+) -> Status:
+    gv, uid = state.key, user.uid
+    sel, _ = service.selected_characters(conn, uid, gv)
     ah = service.auction_house_of(conn, gv, sel)
+    sync = users.get_sync(conn, uid, gv)
     return Status(
-        db_path=state.database.display_url,
+        db_path="" if hosted else state.database.display_url,
         build=db.get_build(conn, gv),
         items=db.count_rows(conn, "items", gv),
         recipes=db.count_rows(conn, "recipes", gv),
         prices=prices.count_current(conn, ah),
-        characters=db.count_rows(conn, "characters", gv),
+        characters=store.count_characters(conn, uid, gv),
         last_auctionator_import=prices.last_import(conn, ah),
-        last_altarmy_sync=db.get_setting(conn, gv, "altarmy_synced"),
-        last_auctionator_sync=db.get_setting(conn, gv, "auctionator_synced"),
-        altarmy_path=db.get_setting(conn, gv, "altarmy_path"),
-        auctionator_path=db.get_setting(conn, gv, "auctionator_path"),
-        auctionator_realm=db.get_setting(conn, gv, "auctionator_realm"),
+        last_altarmy_sync=db.timestamp_text(sync.altarmy_synced),
+        last_auctionator_sync=db.timestamp_text(sync.auctionator_synced),
+        altarmy_path=sync.altarmy_path,
+        auctionator_path=sync.auctionator_path,
+        auctionator_realm=sync.auctionator_realm,
         selection=_selection_model(sel),
-        data_version=service.data_version(conn, gv),
+        auction_house_id=ah,
+        data_version=service.data_version(conn, uid, gv),
         warnings=warnings or [],
     )
 
@@ -382,24 +499,27 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/status")
-def get_status(state: State) -> Status:
-    """Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten."""
+def get_status(state: State, user: CurrentUser, request: Request) -> Status:
+    """In local mode also the addon file watcher: re-imports Alt Army and Auctionator data the game has
+    rewritten. Hosted mode never reads local files."""
+    hosted = _auth(request).mode == "hosted"
     with _connect(state) as conn:
-        return _status(state, conn, _sync(state, conn))
+        warnings = [] if hosted else _sync(state, conn, user)
+        return _status(state, conn, user, hosted, warnings)
 
 
-@router.post("/sync")
-def sync_now(state: State) -> Status:
+@router.post("/sync", dependencies=LOCAL_ONLY)
+def sync_now(state: State, user: CurrentUser) -> Status:
     """Re-import both addon files even if they look unchanged."""
     with _connect(state) as conn:
-        return _status(state, conn, _sync(state, conn, force=True))
+        return _status(state, conn, user, False, _sync(state, conn, user, force=True))
 
 
 @router.get("/characters")
-def get_characters(state: State) -> Characters:
+def get_characters(state: State, user: LinkedUser) -> Characters:
     with _connect(state) as conn:
-        chars = store.load_characters(conn, state.key)
-        sel = service.selection(conn, state.key, chars)
+        chars = store.load_characters(conn, user.uid, state.key)
+        sel = service.selection(conn, user.uid, state.key, chars)
     return Characters(
         groups=[
             GroupOut(
@@ -427,23 +547,25 @@ def get_characters(state: State) -> Characters:
 
 
 @router.put("/selection")
-def put_selection(state: State, body: SelectionModel) -> Status:
-    """Switch realm/faction; that realm's Auctionator prices replace the previous ones."""
+def put_selection(state: State, user: LinkedUser, body: SelectionModel, request: Request) -> Status:
+    """Switch realm/faction; in local mode that realm's Auctionator prices are synced too."""
+    hosted = _auth(request).mode == "hosted"
     with _http_errors(), _connect(state) as conn:
-        service.select(conn, state.key, body.realm, body.faction)
-        return _status(state, conn, _sync(state, conn))
+        service.select(conn, user.uid, state.key, body.realm, body.faction)
+        return _status(state, conn, user, hosted, [] if hosted else _sync(state, conn, user))
 
 
-@router.put("/sources")
-def put_sources(state: State, body: Sources) -> Status:
+@router.put("/sources", dependencies=LOCAL_ONLY)
+def put_sources(state: State, user: CurrentUser, body: Sources) -> Status:
     with _http_errors(), _connect(state) as conn:
-        service.set_sources(conn, state.key, body.altarmy_path, body.auctionator_path)
-        return _status(state, conn, _sync(state, conn, force=True))
+        service.set_sources(conn, user.uid, state.key, body.altarmy_path, body.auctionator_path)
+        return _status(state, conn, user, False, _sync(state, conn, user, force=True))
 
 
 @router.get("/rank")
 def get_rank(
     state: State,
+    user: LinkedUser,
     include_unlearned: Annotated[
         bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
     ] = False,
@@ -461,7 +583,7 @@ def get_rank(
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, most profitable first. Bounds are
     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
-    base, chars, no_ah = _selected(state)
+    base, chars, no_ah = _selected(state, user)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
     matches = service.search(
         base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
@@ -477,9 +599,9 @@ def get_rank(
 
 
 @router.post("/evaluate")
-def evaluate(state: State, body: EvaluateRequest) -> EvaluateResponse:
+def evaluate(state: State, user: LinkedUser, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
-    base, chars, no_ah = _selected(state)
+    base, chars, no_ah = _selected(state, user)
     r = service.evaluate(
         base,
         chars,
@@ -497,12 +619,14 @@ def evaluate(state: State, body: EvaluateRequest) -> EvaluateResponse:
     )
 
 
-def _selected(state: AppState) -> tuple[engine.Market, list[altarmy.Character], frozenset[int]]:
+def _selected(
+    state: AppState, user: auth.User
+) -> tuple[engine.Market, list[altarmy.Character], frozenset[int]]:
     """The selection's market (priced by its auction house), characters and never-on-the-AH items."""
     with _connect(state) as conn:
-        sel, chars = service.selected_characters(conn, state.key)
+        sel, chars = service.selected_characters(conn, user.uid, state.key)
         ah = service.auction_house_of(conn, state.key, sel)
-        no_ah = _no_ah(state, conn)
+        no_ah = _no_ah(state, conn, user)
     return state.cache.get(ah), chars, no_ah
 
 
@@ -576,13 +700,13 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
     )
 
 
-def _no_ah(state: AppState, conn: Connection) -> frozenset[int]:
-    return frozenset(i for i, _ in store.load_ah_blocked(conn, state.key))
+def _no_ah(state: AppState, conn: Connection, user: auth.User) -> frozenset[int]:
+    return frozenset(i for i, _ in store.load_ah_blocked(conn, user.uid, state.key))
 
 
-def _ah_blocked(state: AppState, conn: Connection) -> AhBlocked:
-    blocked = store.load_ah_blocked(conn, state.key)
-    base = state.cache.get(service.selected_auction_house(conn, state.key))
+def _ah_blocked(state: AppState, conn: Connection, user: auth.User) -> AhBlocked:
+    blocked = store.load_ah_blocked(conn, user.uid, state.key)
+    base = state.cache.get(service.selected_auction_house(conn, user.uid, state.key))
     return AhBlocked(
         items=[AhBlockedItem(item_id=i, added_at=added) for i, added in blocked],
         details=_item_details(state, conn, base, (i for i, _ in blocked)),
@@ -590,28 +714,101 @@ def _ah_blocked(state: AppState, conn: Connection) -> AhBlocked:
 
 
 @router.get("/ah-blocked")
-def get_ah_blocked(state: State) -> AhBlocked:
+def get_ah_blocked(state: State, user: LinkedUser) -> AhBlocked:
     with _connect(state) as conn:
-        return _ah_blocked(state, conn)
+        return _ah_blocked(state, conn, user)
 
 
 @router.put("/ah-blocked/{item_id}")
-def block_ah(state: State, item_id: int) -> AhBlocked:
+def block_ah(state: State, user: LinkedUser, item_id: int) -> AhBlocked:
     """Never sell `item_id` on the AH: /api/rank and /api/evaluate only vendor or disenchant it."""
     with _connect(state) as conn:
-        store.set_ah_blocked(conn, state.key, item_id, True)
-        return _ah_blocked(state, conn)
+        store.set_ah_blocked(conn, user.uid, state.key, item_id, True)
+        return _ah_blocked(state, conn, user)
 
 
 @router.delete("/ah-blocked/{item_id}")
-def unblock_ah(state: State, item_id: int) -> AhBlocked:
+def unblock_ah(state: State, user: LinkedUser, item_id: int) -> AhBlocked:
     """Allow selling `item_id` on the AH again."""
     with _connect(state) as conn:
-        store.set_ah_blocked(conn, state.key, item_id, False)
-        return _ah_blocked(state, conn)
+        store.set_ah_blocked(conn, user.uid, state.key, item_id, False)
+        return _ah_blocked(state, conn, user)
 
 
-@router.post("/game-data/update")
+# --- prices ----------------------------------------------------------------------------------------
+@router.get("/realms")
+def get_realms(state: State, user: CurrentUser) -> list[AuctionHouseOut]:
+    """The version's auction houses, with how many current prices each has."""
+    with _connect(state) as conn:
+        found = prices.auction_houses(conn, state.key)
+    return [
+        AuctionHouseOut(
+            id=a.id,
+            realm=a.realm,
+            faction=a.faction,
+            prices=a.prices,
+            last_scan=db.timestamp_text(a.last_scan),
+        )
+        for a in found
+    ]
+
+
+def _check_auction_house(state: AppState, conn: Connection, auction_house_id: int) -> None:
+    if prices.game_version_of(conn, auction_house_id) != state.key:
+        raise HTTPException(404, f"No {state.version.label} auction house {auction_house_id}.")
+
+
+@router.get("/prices")
+def get_prices(
+    state: State,
+    user: CurrentUser,
+    auction_house_id: int,
+    q: Annotated[str, Query(description="part of the item name, any case; empty: every priced item")] = "",
+    top: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> PricesOut:
+    """Items priced on the auction house, by name. The free tier only sees items whose required level is
+    at most `free_max_level` (see /api/me)."""
+    max_level = _max_level(user)
+    with _connect(state) as conn:
+        _check_auction_house(state, conn, auction_house_id)
+        ids, total = store.search_prices(conn, state.key, auction_house_id, q, max_level, top)
+        base = state.cache.get(auction_house_id)
+        details = _item_details(state, conn, base, ids)
+    return PricesOut(
+        items=[details[i] for i in ids if i in details], total=total, gated=max_level is not None
+    )
+
+
+@router.get("/prices/{item_id}")
+def get_price_history(
+    state: State, user: CurrentUser, auction_house_id: int, item_id: int
+) -> PriceHistoryOut:
+    """One item's current price and daily history on the auction house (403 for the free tier above its
+    level)."""
+    with _connect(state) as conn:
+        _check_auction_house(state, conn, auction_house_id)
+        base = state.cache.get(auction_house_id)
+        details = _item_details(state, conn, base, [item_id])
+        if item_id not in details:
+            raise HTTPException(404, f"Unknown item {item_id}.")
+        item = details[item_id]
+        max_level = _max_level(user)
+        if max_level is not None and item.required_level > max_level:
+            raise HTTPException(
+                403, f"Link your account to see prices of items above level {auth.FREE_TIER_MAX_LEVEL}."
+            )
+        days = prices.daily(conn, auction_house_id, item_id)
+    return PriceHistoryOut(
+        item=item,
+        days=[
+            DayOut(day=d.isoformat(), low=low, high=high, available=available)
+            for d, low, high, available in reversed(days)
+        ],
+    )
+
+
+# --- local mode: game data, addon files ------------------------------------------------------------
+@router.post("/game-data/update", dependencies=LOCAL_ONLY)
 def update_game_data(
     state: State,
     only_if_new: Annotated[bool, Query(description="skip the rebuild if the newest build is loaded")] = False,
@@ -630,29 +827,53 @@ def update_game_data(
     return UpdateResult(build=build, updated=updated, **stats)
 
 
-def _source_files(state: AppState, find: service.Finder, key: str) -> SourceFiles:
+def _source_files(state: AppState, user: auth.User, find: service.Finder, key: str) -> SourceFiles:
     files = [str(f) for f in find(state.wow_roots, state.version.flavor_folders)]
     with _connect(state) as conn:
-        last = db.get_setting(conn, state.key, key)
+        last: str | None = getattr(users.get_sync(conn, user.uid, state.key), key)
     return SourceFiles(files=files, default=service.default_path(files, last))
 
 
-@router.get("/auctionator/files")
-def get_auctionator_files(state: State) -> SourceFiles:
-    return _source_files(state, prices.find_auctionator_files, "auctionator_path")
+@router.get("/auctionator/files", dependencies=LOCAL_ONLY)
+def get_auctionator_files(state: State, user: CurrentUser) -> SourceFiles:
+    return _source_files(state, user, prices.find_auctionator_files, "auctionator_path")
 
 
-@router.get("/altarmy/files")
-def get_altarmy_files(state: State) -> SourceFiles:
-    return _source_files(state, prices.find_altarmy_files, "altarmy_path")
+@router.get("/altarmy/files", dependencies=LOCAL_ONLY)
+def get_altarmy_files(state: State, user: CurrentUser) -> SourceFiles:
+    return _source_files(state, user, prices.find_altarmy_files, "altarmy_path")
 
 
-@router.post("/reload")
-def reload(state: State) -> Status:
+@router.post("/reload", dependencies=LOCAL_ONLY)
+def reload(state: State, user: CurrentUser) -> Status:
     """Drop the cached market, e.g. after changing the database from the command line."""
     state.cache.invalidate()
     with _connect(state) as conn:
-        return _status(state, conn)
+        return _status(state, conn, user, False)
+
+
+# --- who and how -----------------------------------------------------------------------------------
+@router.get("/config")
+def get_config(request: Request) -> ConfigOut:
+    """How the front end signs in: not at all (local mode), or with this Firebase project."""
+    a = _auth(request)
+    fb = a.firebase
+    return ConfigOut(
+        mode=a.mode,
+        firebase=None
+        if fb is None
+        else FirebaseOut(
+            api_key=fb.api_key,
+            auth_domain=fb.auth_domain,
+            project_id=fb.project_id,
+            emulator_url=f"http://{fb.emulator_host}" if fb.emulator_host else None,
+        ),
+    )
+
+
+@router.get("/me")
+def get_me(user: CurrentUser) -> Me:
+    return Me(uid=user.uid, tier=user.tier, free_max_level=auth.FREE_TIER_MAX_LEVEL)
 
 
 @router.get("/versions")
@@ -673,12 +894,26 @@ def create_app(
     cache_dir: Path = CACHE_DIR,
     static_dir: Path | None = DEFAULT_DIST,
     wow_roots: Sequence[Path] = tuple(prices.WOW_ROOTS),
+    mode: auth.Mode | None = None,
+    verifier: auth.TokenVerifier | None = None,
+    firebase: auth.FirebaseConfig | None = None,
 ) -> FastAPI:
     """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
     `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network (the schema is
-    migrated on the first request), so tests and the OpenAPI export can call it freely."""
+    migrated on the first request), so tests and the OpenAPI export can call it freely.
+
+    `mode` defaults to `ALTARMY_MODE` (local). Hosted mode takes the Firebase project from the environment
+    (`auth.FirebaseConfig.from_env`) unless `firebase` is given, and verifies tokens with firebase-admin
+    unless a `verifier` is given (tests pass a fake one)."""
     database = database or db.Database(db.default_url())
+    mode = mode or auth.mode_from_env()
+    if mode == "hosted":
+        firebase = firebase or auth.FirebaseConfig.from_env()
+        verifier = verifier or auth.FirebaseVerifier(firebase.project_id)
+    else:
+        firebase = verifier = None
     app = FastAPI(title="altarmy-profit", version="0.1.0")
+    app.state.auth = AuthState(mode, database, verifier, firebase)
     app.state.wow = {
         key: AppState(
             v,

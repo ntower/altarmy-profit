@@ -6,7 +6,7 @@ import type { UpdateResult } from './api/client'
 import { GAME_VERSION_KEY } from './lib/gameVersion'
 import { syncSeen, syncSeenKey } from './lib/syncNotice'
 import { characters, status } from './test/status'
-import { mockApi, renderWithProviders } from './test/utils'
+import { GUEST, LINKED, mockApi, renderWithProviders } from './test/utils'
 
 const result: UpdateResult = {
   build: '1.60.1.70000',
@@ -110,5 +110,45 @@ describe('game version switch', () => {
     await waitFor(() => expect(versionsOf(fetch, '/api/status')).toContain('tbc'))
     await waitFor(() => expect(versionsOf(fetch, '/api/game-data/update')).toEqual(['forever', 'tbc']))
     expect(JSON.parse(localStorage.getItem(GAME_VERSION_KEY) ?? '')).toBe('tbc')
+  })
+})
+
+
+describe('the shell by mode and tier', () => {
+  const tabs = () => screen.getAllByRole('tab').map((t) => t.textContent)
+  const hostedApi = () =>
+    mockApi({
+      '/api/status': status(),
+      '/api/characters': characters,
+      '/api/realms': [],
+      '/api/ah-blocked': { items: [], details: {} },
+    })
+
+  it('shows everything in local mode, with no account controls', async () => {
+    mockApi({ '/api/game-data/update': result, '/api/status': status(), '/api/characters': characters, '/api/realms': [] })
+    renderApp()
+    expect(tabs()).toEqual(['Search', 'Prices', 'Manage'])
+    expect(screen.queryByText('Guest')).not.toBeInTheDocument()
+  })
+
+  it('gives guests only prices and a way to link, and never syncs or updates game data', async () => {
+    const fetch = hostedApi()
+    renderWithProviders(<App />, GUEST)
+    expect(tabs()).toEqual(['Prices'])
+    expect(screen.getByText('You are browsing as a guest')).toBeInTheDocument()
+    expect(await screen.findByText(/No auction house has prices/)).toBeInTheDocument()
+    expect(updateCalls(fetch)).toEqual([])
+  })
+
+  it('gives linked users search and their AH blocks, without the local file sync', async () => {
+    const fetch = hostedApi()
+    renderWithProviders(<App />, LINKED)
+    expect(tabs()).toEqual(['Search', 'Prices', 'Manage'])
+    expect(screen.getByText('Linked account')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Manage' }))
+    expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
+    expect(screen.queryByText('Addon data')).not.toBeInTheDocument()
+    expect(screen.queryByText('Game data')).not.toBeInTheDocument()
+    expect(updateCalls(fetch)).toEqual([])
   })
 })

@@ -38,7 +38,7 @@ def main() -> None:
     v = versions.VERSIONS[args.game_version]
     database = db.Database(db.default_url())
     conn = database.connect()
-    ah = service.selected_auction_house(conn, v.key)
+    ah = service.selected_auction_house(conn, db.LOCAL_UID, v.key)
     print(
         f"{v.label}: build {db.get_build(conn, v.key)}, {db.count_rows(conn, 'items', v.key)} items, "
         f"{db.count_rows(conn, 'recipes', v.key)} recipes, {prices.count_current(conn, ah)} prices"
@@ -50,7 +50,7 @@ def main() -> None:
     chars = (
         altarmy.parse_characters(args.altarmy.read_bytes())
         if args.altarmy
-        else store.load_characters(conn, v.key)
+        else store.load_characters(conn, db.LOCAL_UID, v.key)
     )
     everything = Filters(min_profit=-(10**18))
     print(f"{'realm (faction)':<32} {'chars':>5} {'learned':>16} {'+ unlearned':>16}")

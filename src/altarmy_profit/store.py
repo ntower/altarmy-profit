@@ -1,4 +1,5 @@
-"""Load database rows into the engine's plain dataclasses, and store characters and AH blocks."""
+"""Load database rows into the engine's plain dataclasses, store each user's characters and AH blocks, and
+search an auction house's prices."""
 
 from __future__ import annotations
 
@@ -6,7 +7,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 
-from sqlalchemy import Connection, delete, select
+from sqlalchemy import Connection, delete, func, select
 
 from . import db, prices, schema
 from .altarmy import Character, Profession
@@ -123,14 +124,16 @@ def load_item_details(conn: Connection, game_version: str, ids: Iterable[int]) -
     return out
 
 
-def save_characters(conn: Connection, game_version: str, chars: Sequence[Character]) -> None:
-    """Replace the version's stored characters with `chars` (Alt Army's file is the source of truth)."""
+def save_characters(conn: Connection, user_uid: str, game_version: str, chars: Sequence[Character]) -> None:
+    """Replace the user's characters of the version with `chars` (Alt Army's file is the source of truth)."""
     c = schema.characters
-    conn.execute(delete(c).where(c.c.game_version == game_version))  # professions and recipes cascade
+    # professions and recipes cascade
+    conn.execute(delete(c).where(c.c.user_uid == user_uid, c.c.game_version == game_version))
     for ch in chars:
         char_id: int = conn.execute(
             c.insert()
             .values(
+                user_uid=user_uid,
                 game_version=game_version,
                 realm=ch.realm,
                 name=ch.name,
@@ -156,10 +159,11 @@ def save_characters(conn: Connection, game_version: str, chars: Sequence[Charact
                 )
 
 
-def load_characters(conn: Connection, game_version: str) -> list[Character]:
-    """The version's characters sorted by realm then name, professions sorted by name."""
+def load_characters(conn: Connection, user_uid: str, game_version: str) -> list[Character]:
+    """The user's characters of the version sorted by realm then name, professions sorted by name."""
     c, cp, cr = schema.characters, schema.character_professions, schema.character_recipes
-    mine = select(c.c.id).where(c.c.game_version == game_version)
+    owned = (c.c.user_uid == user_uid, c.c.game_version == game_version)
+    mine = select(c.c.id).where(*owned)
     recipes: dict[tuple[int, str], set[int]] = {}
     for r in conn.execute(select(cr).where(cr.c.character_id.in_(mine))):
         recipes.setdefault((r.character_id, r.skill_name), set()).add(r.spell_id)
@@ -171,26 +175,65 @@ def load_characters(conn: Connection, game_version: str) -> list[Character]:
         )
     return [
         Character(r.realm, r.name, r.faction, r.class_file, r.level, tuple(profs.get(r.id, ())))
-        for r in conn.execute(select(c).where(c.c.game_version == game_version).order_by(c.c.realm, c.c.name))
+        for r in conn.execute(select(c).where(*owned).order_by(c.c.realm, c.c.name))
     ]
 
 
-def load_ah_blocked(conn: Connection, game_version: str) -> list[tuple[int, str]]:
-    """Items never to sell on the AH as (item id, when added as UTC text), newest first."""
+def count_characters(conn: Connection, user_uid: str, game_version: str) -> int:
+    c = schema.characters
+    query = select(func.count()).where(c.c.user_uid == user_uid, c.c.game_version == game_version)
+    return int(conn.execute(query).scalar_one())
+
+
+def load_ah_blocked(conn: Connection, user_uid: str, game_version: str) -> list[tuple[int, str]]:
+    """Items the user never sells on the AH as (item id, when added as UTC text), newest first."""
     t = schema.ah_blocked
     rows = conn.execute(
         select(t.c.item_id, t.c.added_at)
-        .where(t.c.game_version == game_version)
+        .where(t.c.user_uid == user_uid, t.c.game_version == game_version)
         .order_by(t.c.added_at.desc(), t.c.item_id)
     )
     return [(r.item_id, db.timestamp_text(r.added_at) or "") for r in rows]
 
 
-def set_ah_blocked(conn: Connection, game_version: str, item_id: int, blocked: bool) -> None:
+def set_ah_blocked(conn: Connection, user_uid: str, game_version: str, item_id: int, blocked: bool) -> None:
     """Never sell `item_id` on the AH, or allow it again."""
     t = schema.ah_blocked
     if blocked:
-        row = {"game_version": game_version, "item_id": item_id, "added_at": db.utcnow()}
-        db.upsert(conn, t, [row], ["game_version", "item_id"], update=[])
+        row = {
+            "user_uid": user_uid,
+            "game_version": game_version,
+            "item_id": item_id,
+            "added_at": db.utcnow(),
+        }
+        db.upsert(conn, t, [row], ["user_uid", "game_version", "item_id"], update=[])
     else:
-        conn.execute(delete(t).where(t.c.game_version == game_version, t.c.item_id == item_id))
+        conn.execute(
+            delete(t).where(
+                t.c.user_uid == user_uid, t.c.game_version == game_version, t.c.item_id == item_id
+            )
+        )
+
+
+def search_prices(
+    conn: Connection,
+    game_version: str,
+    auction_house_id: int,
+    query: str = "",
+    max_required_level: int | None = None,
+    limit: int = 50,
+) -> tuple[list[int], int]:
+    """Items with a current price on the auction house whose name contains `query` (any case), usable at
+    `max_required_level` or below when given: the first `limit` item ids by name, and how many match."""
+    i, pc = schema.items, schema.price_current
+    where = [i.c.game_version == game_version, pc.c.auction_house_id == auction_house_id]
+    if query.strip():
+        where.append(func.lower(i.c.name).contains(query.strip().lower(), autoescape=True))
+    if max_required_level is not None:
+        where.append(i.c.required_level <= max_required_level)
+    joined = i.join(pc, pc.c.item_id == i.c.id)
+    total = int(conn.execute(select(func.count()).select_from(joined).where(*where)).scalar_one())
+    ids: Iterable[int] = conn.execute(
+        select(i.c.id).select_from(joined).where(*where).order_by(i.c.name, i.c.id).limit(limit)
+    ).scalars()
+    return list(ids), total

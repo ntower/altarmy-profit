@@ -2,8 +2,9 @@
 
 Before Phase 2 each game version had its own file, `data/altarmy-profit-<version>.db` (raw SQL schema
 below), and before that a single `data/altarmy-profit.db`. `import_version_files` copies each version file
-into the shared database (game data, settings, characters, AH blocks, and prices as snapshots) in one
-transaction, then renames it to `*.imported` so it is never imported twice and stays as a backup.
+into the shared database (game data; the local user's settings, characters and AH blocks; prices as
+snapshots) in one transaction, then renames it to `*.imported` so it is never imported twice and stays as
+a backup.
 """
 
 from __future__ import annotations
@@ -12,10 +13,12 @@ import sqlite3
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Connection, Table, delete
 
-from . import db, prices, schema, versions
+from . import db, prices, schema, users, versions
+from .db import LOCAL_UID
 from .prices import Observation
 from .versions import GameVersion
 
@@ -124,9 +127,9 @@ ITEM_COLUMNS = {
     "stack_size": "INTEGER NOT NULL DEFAULT 1",
 }
 
-# Settings that would stop the first sync from re-reading the addon files; dropping them makes it
-# record Auctionator's full daily history, which the old files never kept.
-SKIPPED_META = {"build", "auctionator_mtime"}
+# The old `meta` keys kept as the local user's sync state. `auctionator_mtime` is left out so the first sync
+# re-reads the file and records Auctionator's full daily history, which the old files never kept.
+SYNC_TEXT_META = ("altarmy_path", "auctionator_path", "auctionator_realm", "auctionator_for")
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -190,8 +193,8 @@ def import_version_files(
 
 
 def import_version_file(conn: Connection, game_version: str, path: Path) -> None:
-    """Copy one old file into the database as `game_version`, replacing that version's game data,
-    settings, characters and AH blocks; its prices become snapshots."""
+    """Copy one old file into the database as `game_version`, replacing that version's game data and
+    the local user's settings, characters and AH blocks there; its prices become snapshots."""
     old = connect(path)
     try:
         init_schema(old)
@@ -207,17 +210,10 @@ def import_version_file(conn: Connection, game_version: str, path: Path) -> None
 
 
 def _clear(conn: Connection, gv: str) -> None:
-    for t in (
-        schema.recipe_reagents,
-        schema.recipes,
-        schema.items,
-        schema.disenchant,
-        schema.vendor_items,
-        schema.settings,
-        schema.characters,
-        schema.ah_blocked,
-    ):
+    for t in (schema.recipe_reagents, schema.recipes, schema.items, schema.disenchant, schema.vendor_items):
         conn.execute(delete(t).where(t.c.game_version == gv))
+    for t in (schema.user_settings, schema.local_sync, schema.characters, schema.ah_blocked):
+        conn.execute(delete(t).where(t.c.user_uid == LOCAL_UID, t.c.game_version == gv))
 
 
 def _rows(old: sqlite3.Connection, query: str, *params: object) -> list[dict[str, object]]:
@@ -252,14 +248,27 @@ def _copy_game_data(conn: Connection, old: sqlite3.Connection, gv: str, build: s
 
 
 def _copy_state(conn: Connection, old: sqlite3.Connection, gv: str, meta: dict[str, str]) -> None:
-    settings: list[dict[str, object]] = [
-        {"game_version": gv, "key": k, "value": v} for k, v in meta.items() if k not in SKIPPED_META
-    ]
-    _insert(conn, schema.settings, settings)
+    users.update_settings(
+        conn,
+        LOCAL_UID,
+        gv,
+        selected_realm=meta.get("selected_realm"),
+        selected_faction=meta.get("selected_faction"),
+        data_version=int(meta.get("data_version") or 0),
+    )
+    sync: dict[str, Any] = {k: meta.get(k) for k in SYNC_TEXT_META}
+    if meta.get("altarmy_mtime"):
+        sync["altarmy_mtime"] = int(meta["altarmy_mtime"])
+    for key in ("altarmy_synced", "auctionator_synced"):
+        if meta.get(key):
+            sync[key] = _time(meta[key])
+    users.update_sync(conn, LOCAL_UID, gv, **sync)
     c = schema.characters
     for ch in _rows(old, "SELECT * FROM characters ORDER BY id"):
         old_id = ch.pop("id")
-        new_id: int = conn.execute(c.insert().values(**ch, game_version=gv).returning(c.c.id)).scalar_one()
+        new_id: int = conn.execute(
+            c.insert().values(**ch, user_uid=LOCAL_UID, game_version=gv).returning(c.c.id)
+        ).scalar_one()
         profs = _rows(
             old, "SELECT skill_name, rank, max_rank FROM character_professions WHERE character_id = ?", old_id
         )
@@ -269,7 +278,12 @@ def _copy_state(conn: Connection, old: sqlite3.Connection, gv: str, meta: dict[s
         )
         _insert(conn, schema.character_recipes, [{**k, "character_id": new_id} for k in known])
     blocked = [
-        {"game_version": gv, "item_id": r["item_id"], "added_at": _time(str(r["added_at"]))}
+        {
+            "user_uid": LOCAL_UID,
+            "game_version": gv,
+            "item_id": r["item_id"],
+            "added_at": _time(str(r["added_at"])),
+        }
         for r in _rows(old, "SELECT item_id, added_at FROM ah_blocked")
     ]
     _insert(conn, schema.ah_blocked, blocked)
@@ -294,7 +308,9 @@ def _copy_prices(conn: Connection, old: sqlite3.Connection, gv: str, meta: dict[
         by_source.setdefault(source, []).append(obs)
     for source, observations in sorted(by_source.items()):
         scanned_at = max(o.seen_at for o in observations)
-        prices.record_snapshot(conn, ah, source, scanned_at, observations, received_at=scanned_at)
+        prices.record_snapshot(
+            conn, ah, source, scanned_at, observations, received_at=scanned_at, uploader_uid=LOCAL_UID
+        )
 
 
 def _time(text: str) -> datetime:

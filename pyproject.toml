@@ -8,6 +8,8 @@ dependencies = ["sqlalchemy>=2.0", "alembic>=1.13"]
 [project.optional-dependencies]
 ui = ["fastapi>=0.115", "uvicorn>=0.30"]
 postgres = ["psycopg[binary]>=3.2"]
+# hosted mode: verifies Firebase ID tokens
+hosted = ["firebase-admin>=6.5"]
 dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "httpx2>=2.13", "psycopg[binary]>=3.2"]
 
 [project.scripts]
@@ -40,6 +42,11 @@ python_version = "3.11"
 strict = true
 files = ["src", "tests"]
 
+
+[[tool.mypy.overrides]]
+# firebase-admin (the `hosted` extra) ships no type hints.
+module = ["firebase_admin", "firebase_admin.*"]
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # pytest's type hints import numpy when it is installed; numpy's stubs use 3.12-only syntax that mypy
