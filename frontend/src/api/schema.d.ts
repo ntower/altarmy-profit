@@ -153,6 +153,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Keys
+         * @description Your API keys for the CLI watcher (the keys themselves are not stored).
+         */
+        get: operations["get_keys_api_keys_get"];
+        put?: never;
+        /**
+         * Post Key
+         * @description A new API key for `altarmy-profit watch`. The key is in this response only.
+         */
+        post: operations["post_key_api_keys_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/keys/{key_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Key
+         * @description Revoke a key: the watcher using it stops. Returns your remaining keys.
+         */
+        delete: operations["delete_key_api_keys__key_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -351,6 +395,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/uploads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Uploads
+         * @description Your newest uploads (every game version), newest first.
+         */
+        get: operations["get_uploads_api_uploads_get"];
+        put?: never;
+        /**
+         * Post Upload
+         * @description Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
+         *     game version, Auctionator adds a scan for every realm it has prices for.
+         */
+        post: operations["post_upload_api_uploads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/versions": {
         parameters: {
             query?: never;
@@ -394,6 +463,19 @@ export interface components {
             /** Item Id */
             item_id: number;
         };
+        /** ApiKeyOut */
+        ApiKeyOut: {
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Label */
+            label: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Prefix */
+            prefix: string;
+        };
         /** AuctionHouseOut */
         AuctionHouseOut: {
             /** Faction */
@@ -406,6 +488,27 @@ export interface components {
             prices: number;
             /** Realm */
             realm: string;
+        };
+        /** Body_post_upload_api_uploads_post */
+        Body_post_upload_api_uploads_post: {
+            /** File */
+            file: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "altarmy" | "auctionator";
+            /**
+             * Modified At
+             * @description the file's modified time, ms since 1970
+             */
+            modified_at?: number | null;
+            /**
+             * Via
+             * @default browser
+             * @enum {string}
+             */
+            via: "browser" | "watcher";
         };
         /** CharacterOut */
         CharacterOut: {
@@ -510,6 +613,15 @@ export interface components {
             /** Project Id */
             project_id: string;
         };
+        /** GroupCount */
+        GroupCount: {
+            /** Characters */
+            characters: number;
+            /** Faction */
+            faction: string;
+            /** Realm */
+            realm: string;
+        };
         /** GroupOut */
         GroupOut: {
             /** Characters */
@@ -571,6 +683,11 @@ export interface components {
             /** Vendor Price */
             vendor_price: number | null;
         };
+        /** KeyRequest */
+        KeyRequest: {
+            /** Label */
+            label: string;
+        };
         /**
          * MaterialOut
          * @description One possible disenchant result.
@@ -600,6 +717,21 @@ export interface components {
             tier: "free" | "linked";
             /** Uid */
             uid: string;
+        };
+        /** NewApiKey */
+        NewApiKey: {
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Prefix */
+            prefix: string;
         };
         /**
          * NodeOut
@@ -735,6 +867,21 @@ export interface components {
             steps: components["schemas"]["StepOut"][];
             tree: components["schemas"]["NodeOut"];
         };
+        /** RealmPricesOut */
+        RealmPricesOut: {
+            /** Auction House Id */
+            auction_house_id: number;
+            /** Faction */
+            faction: string;
+            /** Items */
+            items: number;
+            /** Key */
+            key: string;
+            /** Moved */
+            moved: number;
+            /** Realm */
+            realm: string;
+        };
         /**
          * SelectionModel
          * @description A realm and faction: whose recipes count and which auction house prices them.
@@ -837,6 +984,50 @@ export interface components {
             updated: boolean;
             /** Vendor Items */
             vendor_items: number;
+        };
+        /** UploadOut */
+        UploadOut: {
+            /** Detail */
+            detail: string;
+            /** Game Version */
+            game_version: string;
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "altarmy" | "auctionator";
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "accepted" | "rejected";
+            /** Received At */
+            received_at: string;
+            /** Size */
+            size: number;
+            /**
+             * Via
+             * @enum {string}
+             */
+            via: "browser" | "watcher";
+        };
+        /** UploadResult */
+        UploadResult: {
+            /** Characters */
+            characters: number;
+            /** Detail */
+            detail: string;
+            /** Groups */
+            groups: components["schemas"]["GroupCount"][];
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "altarmy" | "auctionator";
+            /** Realms */
+            realms: components["schemas"]["RealmPricesOut"][];
         };
         /** ValidationError */
         ValidationError: {
@@ -1150,6 +1341,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_keys_api_keys_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyOut"][];
+                };
+            };
+        };
+    };
+    post_key_api_keys_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["KeyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewApiKey"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_key_api_keys__key_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiKeyOut"][];
                 };
             };
             /** @description Validation Error */
@@ -1492,6 +1767,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_uploads_api_uploads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadOut"][];
+                };
+            };
+        };
+    };
+    post_upload_api_uploads_post: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_post_upload_api_uploads_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResult"];
                 };
             };
             /** @description Validation Error */

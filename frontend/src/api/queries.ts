@@ -204,6 +204,70 @@ export function usePriceHistory(auctionHouseId: number, itemId: number) {
   })
 }
 
+/** Your newest uploads, every game version. */
+export function useUploads() {
+  return useQuery({
+    queryKey: ['uploads'],
+    queryFn: () => call(client.GET('/api/uploads')),
+  })
+}
+
+export type UploadKind = 'altarmy' | 'auctionator'
+
+/** Upload an addon file for the chosen game; everything it can change is refetched afterwards. */
+export function useUpload() {
+  const gameVersion = useGameVersion()
+  const invalidate = useInvalidateAll()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ kind, file }: { kind: UploadKind; file: File }) =>
+      call(
+        client.POST('/api/uploads', {
+          ...gv(gameVersion),
+          // The generated type says `string` (OpenAPI's binary format); the serializer sends the File itself.
+          body: { kind, file: file as unknown as string, modified_at: file.lastModified, via: 'browser' },
+          bodySerializer: (body) => {
+            const form = new FormData()
+            form.append('kind', body.kind)
+            form.append('via', 'browser')
+            if (body.modified_at != null) form.append('modified_at', String(body.modified_at))
+            form.append('file', file, file.name)
+            return form
+          },
+        }),
+      ),
+    onSuccess: () => invalidate(),
+    onError: () => queryClient.invalidateQueries({ queryKey: ['uploads'] }), // it lists rejected ones too
+  })
+}
+
+/** Your API keys for the CLI watcher. */
+export function useApiKeys() {
+  return useQuery({
+    queryKey: ['keys'],
+    queryFn: () => call(client.GET('/api/keys')),
+  })
+}
+
+/** Make an API key; the response is the only time the key itself is shown. */
+export function useCreateKey() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (label: string) => call(client.POST('/api/keys', { body: { label } })),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['keys'] }),
+    onError: showError('Could not make a key'),
+  })
+}
+
+export function useRevokeKey() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (keyId: number) => call(client.DELETE('/api/keys/{key_id}', { params: { path: { key_id: keyId } } })),
+    onSuccess: (keys) => queryClient.setQueryData(['keys'], keys),
+    onError: showError('Could not revoke the key'),
+  })
+}
+
 export function useAuctionatorFiles() {
   const gameVersion = useGameVersion()
   return useQuery({

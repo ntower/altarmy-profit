@@ -56,3 +56,11 @@ def test_semicolon_separators_and_comments() -> None:
 def test_syntax_errors_raise_value_error(bad: bytes) -> None:
     with pytest.raises(ValueError):
         luasv.parse_assignments(bad)
+
+
+def test_deep_nesting_is_rejected_not_a_crash() -> None:
+    deep = b"X = " + b"{" * 5000 + b"}" * 5000
+    with pytest.raises(ValueError, match="nested too deeply"):
+        luasv.parse_assignments(deep)
+    ok = b"X = " + b"{" * 50 + b"}" * 50
+    assert isinstance(luasv.parse_assignments(ok)["X"], dict)  # real files nest a handful of levels

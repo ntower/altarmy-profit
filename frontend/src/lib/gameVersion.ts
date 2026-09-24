@@ -2,10 +2,11 @@ import { createContext, useContext } from 'react'
 import { z } from 'zod'
 import type { GameVersion } from '../api/client'
 
-/** The games the app serves, in switcher order. Keys match the API's `game_version`. */
-export const GAME_VERSIONS: readonly { value: GameVersion; label: string }[] = [
-  { value: 'forever', label: 'WoW: Forever' },
-  { value: 'tbc', label: 'TBC Anniversary' },
+/** The games the app serves, in switcher order. Keys match the API's `game_version`; `flavor` is the WoW install's
+ * folder holding the game's SavedVariables. */
+export const GAME_VERSIONS: readonly { value: GameVersion; label: string; flavor: string }[] = [
+  { value: 'forever', label: 'WoW: Forever', flavor: '_classic_beta_' },
+  { value: 'tbc', label: 'TBC Anniversary', flavor: '_anniversary_' },
 ]
 export const gameVersionSchema = z.enum(['forever', 'tbc'])
 export const GAME_VERSION_KEY = 'altarmy-profit.gameVersion'

@@ -1,13 +1,15 @@
-"""Users and their per-version state rows: settings (selection, data version) and local mode's addon file
-sync. Functions take a `Connection` and never commit."""
+"""Users, their per-version state rows (settings: selection, data version; local mode's addon file sync)
+and their API keys. Functions take a `Connection` and never commit."""
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 from dataclasses import asdict, dataclass, fields, replace
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Connection, Table, select
+from sqlalchemy import Connection, Table, delete, select
 
 from . import db, schema
 from .auth import User
@@ -99,3 +101,68 @@ def update_sync(conn: Connection, user_uid: str, game_version: str, **changes: A
     new = replace(get_sync(conn, user_uid, game_version), **changes)
     _put(conn, schema.local_sync, user_uid, game_version, asdict(new))
     return new
+
+
+# --- API keys (the CLI watcher's credentials) ------------------------------------------------------
+KEY_PREFIX = "ak_"
+
+
+@dataclass(frozen=True)
+class ApiKey:
+    id: int
+    prefix: str  # the key's first characters, to tell keys apart
+    label: str
+    created_at: datetime
+    last_used_at: datetime | None
+
+
+def _hash(key: str) -> str:
+    return hashlib.sha256(key.encode()).hexdigest()
+
+
+def create_key(conn: Connection, user_uid: str, label: str) -> tuple[ApiKey, str]:
+    """A new key for the user: its row and the key itself, which is not stored and never shown again."""
+    key = KEY_PREFIX + secrets.token_urlsafe(32)
+    now = db.utcnow()
+    t = schema.api_keys
+    row = {"user_uid": user_uid, "key_hash": _hash(key), "prefix": key[:8], "label": label, "created_at": now}
+    key_id: int = conn.execute(t.insert().values(**row).returning(t.c.id)).scalar_one()
+    return ApiKey(key_id, key[:8], label, now, None), key
+
+
+def list_keys(conn: Connection, user_uid: str) -> list[ApiKey]:
+    """The user's keys, newest first."""
+    t = schema.api_keys
+    rows = conn.execute(
+        select(t.c.id, t.c.prefix, t.c.label, t.c.created_at, t.c.last_used_at)
+        .where(t.c.user_uid == user_uid)
+        .order_by(t.c.created_at.desc(), t.c.id.desc())
+    )
+    return [
+        ApiKey(
+            r.id,
+            r.prefix,
+            r.label,
+            db.utc(r.created_at),
+            None if r.last_used_at is None else db.utc(r.last_used_at),
+        )
+        for r in rows
+    ]
+
+
+def revoke_key(conn: Connection, user_uid: str, key_id: int) -> bool:
+    """Delete one of the user's keys; False if they have no such key."""
+    t = schema.api_keys
+    return conn.execute(delete(t).where(t.c.id == key_id, t.c.user_uid == user_uid)).rowcount > 0
+
+
+def user_for_key(conn: Connection, key: str) -> User | None:
+    """Whose key this is (with their stored tier), noting its use; None if unknown or revoked."""
+    k, u = schema.api_keys, schema.users
+    row = conn.execute(
+        select(k.c.id, u.c.uid, u.c.tier).join(u, u.c.uid == k.c.user_uid).where(k.c.key_hash == _hash(key))
+    ).one_or_none()
+    if row is None:
+        return None
+    conn.execute(k.update().where(k.c.id == row.id).values(last_used_at=db.utcnow()))
+    return User(row.uid, "linked" if row.tier == "linked" else "free")

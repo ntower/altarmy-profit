@@ -122,6 +122,8 @@ describe('the shell by mode and tier', () => {
       '/api/characters': characters,
       '/api/realms': [],
       '/api/ah-blocked': { items: [], details: {} },
+      '/api/keys': [],
+      '/api/uploads': [],
     })
 
   it('shows everything in local mode, with no account controls', async () => {
@@ -134,7 +136,7 @@ describe('the shell by mode and tier', () => {
   it('gives guests only prices and a way to link, and never syncs or updates game data', async () => {
     const fetch = hostedApi()
     renderWithProviders(<App />, GUEST)
-    expect(tabs()).toEqual(['Prices'])
+    expect(tabs()).toEqual(['Prices', 'Upload'])
     expect(screen.getByText('You are browsing as a guest')).toBeInTheDocument()
     expect(await screen.findByText(/No auction house has prices/)).toBeInTheDocument()
     expect(updateCalls(fetch)).toEqual([])
@@ -143,10 +145,11 @@ describe('the shell by mode and tier', () => {
   it('gives linked users search and their AH blocks, without the local file sync', async () => {
     const fetch = hostedApi()
     renderWithProviders(<App />, LINKED)
-    expect(tabs()).toEqual(['Search', 'Prices', 'Manage'])
-    expect(screen.getByText('Linked account')).toBeInTheDocument()
+    expect(tabs()).toEqual(['Search', 'Prices', 'Upload', 'Manage'])
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Manage' }))
     expect(await screen.findByText('Never sold on the auction house')).toBeInTheDocument()
+    expect(screen.getByText('Upload automatically')).toBeInTheDocument()
     expect(screen.queryByText('Addon data')).not.toBeInTheDocument()
     expect(screen.queryByText('Game data')).not.toBeInTheDocument()
     expect(updateCalls(fetch)).toEqual([])

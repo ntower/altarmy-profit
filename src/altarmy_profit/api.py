@@ -8,7 +8,8 @@ Every route but /api/config and /api/versions has a user (`CurrentUser`). Local 
 the default) always has `auth.LOCAL_USER`; hosted mode verifies the Firebase ID token sent as a bearer
 token. Rankings, characters and AH blocks need the linked tier (`LinkedUser`, else 403); the free tier sees
 prices only for items up to `auth.FREE_TIER_MAX_LEVEL`. The addon file sync, source files and game data
-update exist only in local mode (`LOCAL_ONLY`, else 404).
+update exist only in local mode (`LOCAL_ONLY`, else 404). Uploads also take an API key (`Uploader`), the
+CLI watcher's credential; no other route does, so a leaked key can only upload.
 """
 
 from __future__ import annotations
@@ -18,16 +19,17 @@ import urllib.error
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import Connection
 
-from . import altarmy, auth, db, engine, prices, service, store, users, versions
+from . import altarmy, auth, db, engine, prices, service, store, uploads, users, versions
 from .store import CACHE_DIR
 from .versions import GameVersion, GameVersionKey
 
@@ -333,6 +335,60 @@ class PriceHistoryOut(BaseModel):
     days: list[DayOut]  # newest first
 
 
+UploadKind = Literal["altarmy", "auctionator"]
+UploadVia = Literal["browser", "watcher"]
+
+
+class GroupCount(BaseModel):
+    realm: str
+    faction: str
+    characters: int
+
+
+class RealmPricesOut(BaseModel):
+    key: str  # Auctionator's realm key
+    auction_house_id: int
+    realm: str
+    faction: str
+    items: int  # items priced in the scan
+    moved: int  # of them, items whose current price changed
+
+
+class UploadResult(BaseModel):
+    kind: UploadKind
+    detail: str  # a one-line summary
+    characters: int  # altarmy: characters imported
+    groups: list[GroupCount]  # altarmy: by realm and faction
+    realms: list[RealmPricesOut]  # auctionator: every realm with prices
+
+
+class UploadOut(BaseModel):
+    id: int
+    game_version: str
+    kind: UploadKind
+    via: UploadVia
+    size: int  # bytes, decompressed
+    received_at: str  # "YYYY-MM-DD HH:MM:SS" UTC
+    outcome: Literal["accepted", "rejected"]
+    detail: str
+
+
+class KeyRequest(BaseModel):
+    label: str = Field(min_length=1, max_length=64)  # e.g. the computer it runs on
+
+
+class ApiKeyOut(BaseModel):
+    id: int
+    prefix: str  # the key's first characters
+    label: str
+    created_at: str  # "YYYY-MM-DD HH:MM:SS" UTC
+    last_used_at: str | None
+
+
+class NewApiKey(ApiKeyOut):
+    key: str  # shown only now: only its hash is stored
+
+
 # --- app state and helpers -------------------------------------------------------------------------
 @dataclass
 class AppState:
@@ -401,6 +457,25 @@ def _current_user(
 
 
 CurrentUser = Annotated[auth.User, Depends(_current_user)]
+
+
+def _uploader(
+    request: Request, credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)]
+) -> auth.User:
+    """Like CurrentUser, but an API key (the CLI watcher's) also signs in, as its owner. Local mode, as
+    everywhere, is the local user whatever is sent."""
+    a = _auth(request)
+    token = credentials.credentials if credentials is not None else ""
+    if a.mode == "local" or not token.startswith(users.KEY_PREFIX):
+        return _current_user(request, credentials)
+    with a.database.begin() as conn:
+        user = users.user_for_key(conn, token)
+    if user is None:
+        raise HTTPException(401, "Unknown or revoked API key.", headers={"WWW-Authenticate": "Bearer"})
+    return user
+
+
+Uploader = Annotated[auth.User, Depends(_uploader)]
 
 
 def _linked_user(user: CurrentUser) -> auth.User:
@@ -733,6 +808,123 @@ def unblock_ah(state: State, user: LinkedUser, item_id: int) -> AhBlocked:
     with _connect(state) as conn:
         store.set_ah_blocked(conn, user.uid, state.key, item_id, False)
         return _ah_blocked(state, conn, user)
+
+
+# --- uploads and API keys -------------------------------------------------------------------------
+def _database(request: Request) -> db.Database:
+    return _auth(request).database
+
+
+def _upload_out(u: uploads.UploadRow) -> UploadOut:
+    return UploadOut(
+        id=u.id,
+        game_version=u.game_version,
+        kind=cast(UploadKind, u.kind),
+        via=cast(UploadVia, u.via),
+        size=u.size,
+        received_at=db.timestamp_text(u.received_at) or "",
+        outcome=cast(Literal["accepted", "rejected"], u.outcome),
+        detail=u.detail,
+    )
+
+
+def _read_upload(file: UploadFile) -> bytes:
+    """The file's bytes, un-gzipped; 413 past uploads.MAX_BYTES either way."""
+    raw = file.file.read(uploads.MAX_BYTES + 1)
+    try:
+        return uploads.decompress(raw, uploads.MAX_BYTES)
+    except uploads.TooLarge:
+        raise HTTPException(413, f"Files are limited to {uploads.MAX_BYTES // 2**20} MB.") from None
+
+
+@router.post("/uploads")
+def post_upload(
+    state: State,
+    user: Uploader,
+    file: UploadFile,
+    kind: Annotated[UploadKind, Form()],
+    modified_at: Annotated[int | None, Form(description="the file's modified time, ms since 1970")] = None,
+    via: Annotated[UploadVia, Form()] = "browser",
+) -> UploadResult:
+    """Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this
+    game version, Auctionator adds a scan for every realm it has prices for."""
+    database = state.database
+    with database.begin() as conn:
+        try:
+            uploads.check_rate(conn, user.uid)
+        except uploads.RateLimited:
+            raise HTTPException(429, "Too many uploads: try again in an hour.") from None
+
+    def reject(size: int, why: str) -> None:
+        with database.begin() as conn:
+            uploads.record_upload(conn, user.uid, state.key, kind, via, size, "rejected", why)
+
+    try:
+        data = _read_upload(file)
+    except HTTPException as e:
+        reject(uploads.MAX_BYTES, str(e.detail))
+        raise
+    except ValueError as e:
+        reject(0, str(e))
+        raise HTTPException(400, str(e)) from e
+    modified = None if modified_at is None else datetime.fromtimestamp(modified_at / 1000, UTC)
+    try:
+        with database.begin() as conn:
+            got = uploads.ingest(conn, user.uid, state.key, kind, data, modified)
+            uploads.record_upload(conn, user.uid, state.key, kind, via, len(data), "accepted", got.detail)
+    except ValueError as e:
+        reject(len(data), str(e))
+        raise HTTPException(400, str(e)) from e
+    if got.auction_house_ids:
+        state.cache.invalidate(got.auction_house_ids)
+    return UploadResult(
+        kind=kind,
+        detail=got.detail,
+        characters=got.characters,
+        groups=[GroupCount(realm=r, faction=f, characters=n) for r, f, n in got.groups],
+        realms=[RealmPricesOut(**asdict(r)) for r in got.realms],
+    )
+
+
+@router.get("/uploads")
+def get_uploads(request: Request, user: CurrentUser) -> list[UploadOut]:
+    """Your newest uploads (every game version), newest first."""
+    with _database(request).begin() as conn:
+        return [_upload_out(u) for u in uploads.recent(conn, user.uid)]
+
+
+def _key_out(k: users.ApiKey) -> ApiKeyOut:
+    return ApiKeyOut(
+        id=k.id,
+        prefix=k.prefix,
+        label=k.label,
+        created_at=db.timestamp_text(k.created_at) or "",
+        last_used_at=db.timestamp_text(k.last_used_at),
+    )
+
+
+@router.get("/keys")
+def get_keys(request: Request, user: LinkedUser) -> list[ApiKeyOut]:
+    """Your API keys for the CLI watcher (the keys themselves are not stored)."""
+    with _database(request).begin() as conn:
+        return [_key_out(k) for k in users.list_keys(conn, user.uid)]
+
+
+@router.post("/keys")
+def post_key(request: Request, user: LinkedUser, body: KeyRequest) -> NewApiKey:
+    """A new API key for `altarmy-profit watch`. The key is in this response only."""
+    with _database(request).begin() as conn:
+        made, key = users.create_key(conn, user.uid, body.label.strip() or "key")
+    return NewApiKey(**_key_out(made).model_dump(), key=key)
+
+
+@router.delete("/keys/{key_id}")
+def delete_key(request: Request, user: LinkedUser, key_id: int) -> list[ApiKeyOut]:
+    """Revoke a key: the watcher using it stops. Returns your remaining keys."""
+    with _database(request).begin() as conn:
+        if not users.revoke_key(conn, user.uid, key_id):
+            raise HTTPException(404, f"You have no API key {key_id}.")
+        return [_key_out(k) for k in users.list_keys(conn, user.uid)]
 
 
 # --- prices ----------------------------------------------------------------------------------------

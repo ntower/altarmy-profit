@@ -39,6 +39,9 @@ metadata = MetaData(
 
 PRICE_SOURCES = ("auctionator", "ahdb", "blizzard_api", "csv", "manual")
 TIERS = ("free", "linked")
+UPLOAD_KINDS = ("altarmy", "auctionator")
+UPLOAD_VIA = ("browser", "watcher")
+UPLOAD_OUTCOMES = ("accepted", "rejected")
 SNAPSHOT_STATUSES = ("accepted", "quarantined")
 
 
@@ -238,6 +241,38 @@ ah_blocked = Table(
     _version(),
     Column("item_id", Integer, primary_key=True, autoincrement=False),
     Column("added_at", DateTime(timezone=True), nullable=False),
+)
+
+# Every addon file a user uploaded (the file itself is never stored), for their history and rate limit.
+uploads = Table(
+    "uploads",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    _owner(primary_key=False),
+    _version(primary_key=False),
+    Column("kind", String(16), nullable=False),
+    Column("via", String(16), nullable=False),
+    Column("size", Integer, nullable=False),  # bytes, decompressed
+    Column("received_at", DateTime(timezone=True), nullable=False),
+    Column("outcome", String(16), nullable=False),
+    Column("detail", Text, nullable=False),  # what it imported, or why it was rejected
+    CheckConstraint(f"kind IN ({_in(UPLOAD_KINDS)})", name="kind"),
+    CheckConstraint(f"via IN ({_in(UPLOAD_VIA)})", name="via"),
+    CheckConstraint(f"outcome IN ({_in(UPLOAD_OUTCOMES)})", name="outcome"),
+    Index(None, "user_uid", "received_at"),
+)
+
+# Keys the CLI watcher uploads with. Only a hash is kept; the key is shown once when it is made.
+api_keys = Table(
+    "api_keys",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    _owner(primary_key=False),
+    Column("key_hash", String(64), nullable=False, unique=True),  # SHA-256 hex
+    Column("prefix", String(16), nullable=False),  # the key's start, to tell keys apart
+    Column("label", String(64), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("last_used_at", DateTime(timezone=True)),
 )
 
 # --- prices ----------------------------------------------------------------------------------------

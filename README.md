@@ -42,6 +42,7 @@ altarmy-profit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedV
 altarmy-profit set-price 2589 250              # one item, copper
 altarmy-profit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
 altarmy-profit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
+altarmy-profit watch --server URL --key KEY    # upload the addon files to a hosted site as WoW rewrites them
 ```
 
 Every command takes `--game-version forever|tbc` (default `forever`) before the command name; it picks the
@@ -101,15 +102,49 @@ auction house keeps its own, so switching realms back and forth loses nothing.
 - `local` (the default): one user, no sign-in, the addon files above are synced. Everything this README
   describes.
 - `hosted`: the multi-user web app being built (see `docs/HOSTED_PLAN.md`). Visitors are signed in with
-  Firebase, anonymously at first; a guest sees only the Prices tab, for items of required level 30 and
-  below. Linking a Google or email account (the header's **Link account**) keeps the same user and unlocks
-  Search, Manage and every price. Each user has their own characters, selection and AH blocks. The server
-  never reads local addon files and has no game data download or reload button; uploads come in a later
-  phase. Needs `pip install -e ".[hosted]"` and `FIREBASE_PROJECT_ID`, plus `FIREBASE_API_KEY` and
-  `FIREBASE_AUTH_DOMAIN` for a real Firebase project.
+  Firebase, anonymously at first; a guest sees the Prices tab (items of required level 30 and below) and
+  the Upload tab. Linking an email address and password (the header's **Link account**) keeps the same
+  user and unlocks Search, Manage and every price; **Sign in** gets back to that account on another
+  browser (with **Forgot password?**), and **Sign out** starts a new guest session. Each user has their
+  own characters, selection and AH blocks. The server never reads local addon files and has no game data
+  download or reload button: data comes in through uploads (below). Needs `pip install -e ".[hosted]"`
+  and `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY` and `FIREBASE_AUTH_DOMAIN`.
 
-To try hosted mode without a Firebase project, run the Firebase Auth emulator (`firebase.json`; needs
-Java 11+) and point the server at it:
+In hosted mode:
+
+- **Upload** takes `AltArmy_TBC.lua` (replaces your characters of the chosen game) and `Auctionator.lua`
+  (adds a scan for every realm in it; everyone's scans fill the same auction houses, the newest price
+  wins). Files are parsed on the server, never stored, and limited to 32 MB; the tab lists your recent
+  uploads, rejected ones included.
+- **Manage → Upload automatically** makes API keys for the watcher (linked accounts only; a key can only
+  upload, is shown once, and can be revoked). On the computer you play on, with this package installed:
+
+  ```powershell
+  altarmy-profit watch --server https://<site> --key ak_...   # or set ALTARMY_KEY instead of --key
+  ```
+
+  It finds both addons' files for both games under the usual WoW folders (`--wow-root` for another),
+  uploads the ones WoW rewrote every 15 seconds (`--interval`), and remembers what it sent in
+  `~/.altarmy-profit/watch-state.json`. `--once` uploads what changed and exits. It needs no database.
+
+**Firebase project.** `hosted.env` holds the project's public web config (`alt-army-prod`), and
+`npm run dev:hosted` runs the dev loop below in hosted mode against it. That creates real users in the
+project and keeps them in the local database file next to local mode's user. The project has the
+**Anonymous** and **Email/Password** sign-in providers enabled. Its browser API key only calls the Identity
+Toolkit and Token Service APIs (sign-in and token refresh) and only from `http://localhost:5173`,
+`http://localhost:8600`, the same two on `127.0.0.1`, `alt-army-prod.firebaseapp.com` and
+`alt-army-prod.web.app` (Google's referrer patterns take no port wildcard). To serve the front end from
+another origin, pass the full list again, since the update replaces it:
+
+```powershell
+gcloud services api-keys update 9856a0a7-d9e2-4b98-ad97-543f83f7bb5b --project alt-army-prod `
+  --billing-project alt-army-prod `
+  --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com `
+  --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-prod.firebaseapp.com/*,https://alt-army-prod.web.app/*,https://<new origin>/*"
+```
+
+To try hosted mode without touching the real project, run the Firebase Auth emulator (`firebase.json`;
+needs Java 11+) and point the server at it:
 
 ```powershell
 npx firebase-tools emulators:start --only auth --project demo-altarmy   # in its own terminal
@@ -118,12 +153,13 @@ $env:FIREBASE_AUTH_EMULATOR_HOST = "127.0.0.1:9099"
 altarmy-profit ui
 ```
 
-The browser then signs in against the emulator (its Google sign-in is a fake account picker). Tests never
-need Firebase: they pass a fake token verifier to `create_app`.
+The browser then signs in against the emulator. Tests never need Firebase: they pass a fake token verifier
+to `create_app`.
 
 ### Front-end development
 
-Run `npm run dev` in the repo root. It starts the Python API on :8600 (`altarmy-profit ui --no-browser`,
+Run `npm run dev` (local mode) or `npm run dev:hosted` (hosted mode, see above) in the repo root. It starts
+the Python API on :8600 (`altarmy-profit ui --no-browser`,
 via the venv), waits for it, then starts Vite and opens http://localhost:5173. Vite hot-reloads the
 React code and proxies `/api` to the Python server; press Ctrl+C and rerun for Python changes. After changing the API's models or routes, regenerate the
 TypeScript types with `python scripts/export_openapi.py` and `npm run gen-types` (`check.py` does both).
@@ -175,6 +211,8 @@ Coarse Thread,120
 - `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
 - `src/altarmy_profit/auth.py`, `users.py` – users and tiers (Firebase token verification in hosted mode,
   the fixed local user otherwise) and each user's settings and sync state
+- `src/altarmy_profit/uploads.py`, `watch.py` – uploaded addon files (parse, pool, history, rate limit)
+  and the CLI watcher that sends them
 - `src/altarmy_profit/store.py` – load the database into engine dataclasses
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/altarmy_profit/cli.py` – command line

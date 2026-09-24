@@ -13,6 +13,7 @@ import {
   useUpdateGameData,
 } from '../api/queries'
 import { useSession } from '../lib/session'
+import { ApiKeysCard } from './ApiKeysCard'
 import { ItemLink } from './ItemTooltip'
 
 function AhBlockedCard() {
@@ -188,7 +189,8 @@ function AddonDataCard() {
   )
 }
 
-/** Hosted mode has only the AH blocks: the server keeps its own game data and never reads local files. */
+/** Hosted mode has the AH blocks and the watcher's API keys: the server keeps its own game data and never reads
+ * local files. */
 export function ManageTab() {
   const { mode } = useSession()
   return mode === 'local' ? (
@@ -196,6 +198,7 @@ export function ManageTab() {
   ) : (
     <Stack>
       <AhBlockedCard />
+      <ApiKeysCard />
     </Stack>
   )
 }

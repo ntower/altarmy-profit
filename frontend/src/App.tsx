@@ -5,6 +5,7 @@ import { GameVersionProvider, GameVersionSwitch } from './components/GameVersion
 import { ManageTab } from './components/ManageTab'
 import { PricesTab } from './components/PricesTab'
 import { SearchTab } from './components/SearchTab'
+import { UploadTab } from './components/UploadTab'
 import { useSession } from './lib/session'
 
 export function App() {
@@ -41,6 +42,7 @@ function Shell() {
         <Tabs.List mb="md">
           {linked && <Tabs.Tab value="search">Search</Tabs.Tab>}
           <Tabs.Tab value="prices">Prices</Tabs.Tab>
+          {mode === 'hosted' && <Tabs.Tab value="upload">Upload</Tabs.Tab>}
           {linked && <Tabs.Tab value="manage">Manage</Tabs.Tab>}
         </Tabs.List>
         {linked && (
@@ -51,6 +53,11 @@ function Shell() {
         <Tabs.Panel value="prices">
           <PricesTab />
         </Tabs.Panel>
+        {mode === 'hosted' && (
+          <Tabs.Panel value="upload">
+            <UploadTab />
+          </Tabs.Panel>
+        )}
         {linked && (
           <Tabs.Panel value="manage">
             <ManageTab />

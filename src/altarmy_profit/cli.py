@@ -1,4 +1,5 @@
-"""Command line interface: ingest, import-prices, import-auctionator, import-altarmy, set-price, rank, ui.
+"""Command line interface: ingest, import-prices, import-auctionator, import-altarmy, set-price, rank, ui,
+watch.
 
 `--game-version` (tbc | forever) picks the game's data, files and wago.tools product. Every version shares
 one database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
@@ -7,12 +8,13 @@ one database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-pro
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import threading
 import webbrowser
 from pathlib import Path
 
-from . import altarmy, db, ingest, legacy, prices, service, store, versions
+from . import altarmy, db, ingest, legacy, prices, service, store, versions, watch
 from .db import LOCAL_UID
 from .engine import Filters, format_money
 from .store import load_market
@@ -142,6 +144,29 @@ def cmd_ui(args: argparse.Namespace) -> None:
     uvicorn.run(create_app(versions.VERSIONS, database=args.database), host=args.host, port=args.port)
 
 
+def cmd_watch(args: argparse.Namespace) -> None:
+    """Upload the addon files to a server whenever WoW rewrites them (no local database)."""
+    roots = [Path(r) for r in args.wow_root] if args.wow_root else prices.WOW_ROOTS
+    key = args.key or os.environ.get("ALTARMY_KEY")
+    state = Path(args.state)
+    found = watch.find_files(roots)
+    if not found:
+        sys.exit(
+            f"No Alt Army or Auctionator files under {', '.join(str(r) for r in roots)}; pass --wow-root."
+        )
+    print(f"Watching {len(found)} files for {args.server} (Ctrl+C to stop).")
+    try:
+        if args.once:
+            if not watch.sync_once(roots, args.server, key, state):
+                print("Nothing changed since the last upload.")
+        else:
+            watch.run(roots, args.server, key, state, interval=args.interval)
+    except (watch.UploadFailed, watch.BadKey) as e:
+        sys.exit(str(e))
+    except KeyboardInterrupt:
+        pass
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="altarmy-profit")
     p.add_argument(
@@ -204,7 +229,21 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     s.set_defaults(fn=cmd_ui)
 
+    s = sub.add_parser(
+        "watch", help="upload the addon files to an altarmy-profit server whenever WoW rewrites them"
+    )
+    s.add_argument("--server", required=True, help="e.g. https://altarmy.example.com")
+    s.add_argument("--key", help="API key from the site's Manage tab (default: the ALTARMY_KEY variable)")
+    s.add_argument("--interval", type=float, default=15, help="seconds between checks (default: 15)")
+    s.add_argument("--once", action="store_true", help="upload what changed, then exit")
+    s.add_argument("--state", default=str(watch.DEFAULT_STATE), help="which files were sent (JSON)")
+    s.add_argument("--wow-root", action="append", help="a WoW install folder (repeatable)")
+    s.set_defaults(fn=cmd_watch, needs_db=False)
+
     args = p.parse_args(argv)
+    if not getattr(args, "needs_db", True):
+        args.fn(args)
+        return
     args.database = _database(args)
     try:
         if args.db is None:

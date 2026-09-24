@@ -44,6 +44,46 @@
         "title": "AhBlockedItem",
         "type": "object"
       },
+      "ApiKeyOut": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prefix",
+          "label",
+          "created_at",
+          "last_used_at"
+        ],
+        "title": "ApiKeyOut",
+        "type": "object"
+      },
       "AuctionHouseOut": {
         "properties": {
           "faction": {
@@ -82,6 +122,50 @@
           "last_scan"
         ],
         "title": "AuctionHouseOut",
+        "type": "object"
+      },
+      "Body_post_upload_api_uploads_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "altarmy",
+              "auctionator"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "the file's modified time, ms since 1970",
+            "title": "Modified At"
+          },
+          "via": {
+            "default": "browser",
+            "enum": [
+              "browser",
+              "watcher"
+            ],
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "kind"
+        ],
+        "title": "Body_post_upload_api_uploads_post",
         "type": "object"
       },
       "CharacterOut": {
@@ -346,6 +430,29 @@
         "title": "FirebaseOut",
         "type": "object"
       },
+      "GroupCount": {
+        "properties": {
+          "characters": {
+            "title": "Characters",
+            "type": "integer"
+          },
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "faction",
+          "characters"
+        ],
+        "title": "GroupCount",
+        "type": "object"
+      },
       "GroupOut": {
         "properties": {
           "characters": {
@@ -539,6 +646,21 @@
         "title": "ItemInfo",
         "type": "object"
       },
+      "KeyRequest": {
+        "properties": {
+          "label": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "title": "KeyRequest",
+        "type": "object"
+      },
       "MaterialOut": {
         "description": "One possible disenchant result.",
         "properties": {
@@ -610,6 +732,51 @@
           "free_max_level"
         ],
         "title": "Me",
+        "type": "object"
+      },
+      "NewApiKey": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "prefix",
+          "label",
+          "created_at",
+          "last_used_at",
+          "key"
+        ],
+        "title": "NewApiKey",
         "type": "object"
       },
       "NodeOut": {
@@ -964,6 +1131,44 @@
         "title": "RankResult",
         "type": "object"
       },
+      "RealmPricesOut": {
+        "properties": {
+          "auction_house_id": {
+            "title": "Auction House Id",
+            "type": "integer"
+          },
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "items": {
+            "title": "Items",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "moved": {
+            "title": "Moved",
+            "type": "integer"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "auction_house_id",
+          "realm",
+          "faction",
+          "items",
+          "moved"
+        ],
+        "title": "RealmPricesOut",
+        "type": "object"
+      },
       "SelectionModel": {
         "description": "A realm and faction: whose recipes count and which auction house prices them.",
         "properties": {
@@ -1296,6 +1501,109 @@
           "vendor_items"
         ],
         "title": "UpdateResult",
+        "type": "object"
+      },
+      "UploadOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "game_version": {
+            "title": "Game Version",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "altarmy",
+              "auctionator"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "outcome": {
+            "enum": [
+              "accepted",
+              "rejected"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "received_at": {
+            "title": "Received At",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "via": {
+            "enum": [
+              "browser",
+              "watcher"
+            ],
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "game_version",
+          "kind",
+          "via",
+          "size",
+          "received_at",
+          "outcome",
+          "detail"
+        ],
+        "title": "UploadOut",
+        "type": "object"
+      },
+      "UploadResult": {
+        "properties": {
+          "characters": {
+            "title": "Characters",
+            "type": "integer"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupCount"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "altarmy",
+              "auctionator"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "realms": {
+            "items": {
+              "$ref": "#/components/schemas/RealmPricesOut"
+            },
+            "title": "Realms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "detail",
+          "characters",
+          "groups",
+          "realms"
+        ],
+        "title": "UploadResult",
         "type": "object"
       },
       "ValidationError": {
@@ -1846,6 +2154,125 @@
           }
         },
         "summary": "Update Game Data"
+      }
+    },
+    "/api/keys": {
+      "get": {
+        "description": "Your API keys for the CLI watcher (the keys themselves are not stored).",
+        "operationId": "get_keys_api_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyOut"
+                  },
+                  "title": "Response Get Keys Api Keys Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Keys"
+      },
+      "post": {
+        "description": "A new API key for `altarmy-profit watch`. The key is in this response only.",
+        "operationId": "post_key_api_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NewApiKey"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Key"
+      }
+    },
+    "/api/keys/{key_id}": {
+      "delete": {
+        "description": "Revoke a key: the watcher using it stops. Returns your remaining keys.",
+        "operationId": "delete_key_api_keys__key_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "key_id",
+            "required": true,
+            "schema": {
+              "title": "Key Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiKeyOut"
+                  },
+                  "title": "Response Delete Key Api Keys  Key Id  Delete",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Key"
       }
     },
     "/api/me": {
@@ -2569,6 +2996,93 @@
           }
         ],
         "summary": "Sync Now"
+      }
+    },
+    "/api/uploads": {
+      "get": {
+        "description": "Your newest uploads (every game version), newest first.",
+        "operationId": "get_uploads_api_uploads_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/UploadOut"
+                  },
+                  "title": "Response Get Uploads Api Uploads Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Uploads"
+      },
+      "post": {
+        "description": "Import an addon's SavedVariables file (plain or gzipped): Alt Army replaces your characters of this\ngame version, Auctionator adds a scan for every realm it has prices for.",
+        "operationId": "post_upload_api_uploads_post",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_post_upload_api_uploads_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Post Upload"
       }
     },
     "/api/versions": {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Alert, Center, Loader } from '@mantine/core'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useConfig, useMe } from '../api/queries'
-import { initAuth } from '../lib/auth'
+import { initAuth, onUserChange } from '../lib/auth'
 import { SessionContext, type Session } from '../lib/session'
 
 const AUTH_KEYS = new Set(['config', 'sign-in', 'me'])
@@ -26,6 +26,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     staleTime: Infinity,
   })
   const me = useMe(config.data !== undefined && (!hosted || signIn.data === true))
+  const queryClient = useQueryClient()
+  // Signing in, linking or signing out changes the token: ask the API who that is now.
+  useEffect(() => onUserChange(() => void queryClient.invalidateQueries({ queryKey: ['me'] })), [queryClient])
   const session = useMemo<Session | undefined>(
     () =>
       config.data && me.data

@@ -86,12 +86,12 @@ Realms and prices:
 
 Users:
 
-- `users(uid, created_at, linked_at, tier, trust_score)`; `api_keys(user_uid, key_hash, label, created_at)`
+- `users(uid, created_at, linked_at, tier, trust_score)`; `api_keys(id, user_uid, key_hash, prefix, label, created_at, last_used_at)`
 - `characters(user_uid, game_version, realm, faction, name, class_file, level, updated_at)`,
   `character_professions`, `character_recipes`: today's tables plus owner and version
 - `user_settings(user_uid, game_version, selected_realm, selected_faction, data_version)`;
   `ah_blocked(user_uid, game_version, item_id)`
-- `uploads(id, uid, kind, size, received_at, outcome)`
+- `uploads(id, user_uid, game_version, kind, via, size, received_at, outcome, detail)`
 - `rank_cache(key, uid, auction_house_id, price_version, params_hash, results jsonb, computed_at)`
 
 Money stays integer copper everywhere.
@@ -126,8 +126,16 @@ Differences from the list above:
 
 ## 5. Auth and access tiers
 
-- The front end signs in anonymously on first visit. Linking with Google or email uses
-  `linkWithCredential`, which keeps the uid, so uploads, settings and trust carry over.
+- The front end signs in anonymously on first visit. Linking an email and password uses
+  `linkWithCredential`, which keeps the uid, so uploads, settings and trust carry over. Email/password is
+  the only account type (decided in Phase 4: no Google), so the site also has sign-in for an existing
+  account, password reset and sign-out (back to a new anonymous session). Signing in on a browser that
+  already has a guest session leaves that guest's data behind; merging accounts is not planned yet.
+- Firebase project: `alt-army-prod`, with the Anonymous and Email/Password providers. Its public web config
+  is in `hosted.env`. Its browser API key is restricted (done after Phase 4, with `gcloud services api-keys
+  update`; see README) to the Identity Toolkit and Token Service APIs, called from localhost:5173/8600,
+  127.0.0.1:5173/8600, `alt-army-prod.firebaseapp.com` and `alt-army-prod.web.app`. Phase 5 adds any custom
+  hosting domain to both that list and the Auth authorized domains.
 - A FastAPI dependency verifies the Firebase ID token with `firebase-admin` and yields `User(uid, tier)`.
   `tier` is `linked` when the token's `firebase.sign_in_provider` is not `anonymous`, else `free`.
 - Free tier: price routes and item pages are filtered to `items.required_level <= FREE_TIER_MAX_LEVEL`
@@ -145,14 +153,18 @@ Differences from the list above:
   `/api/prices` and `/api/prices/{item_id}` apply the level gate: the list is filtered, and one item
   above the level gets 403.
 - CLI and tray uploaders authenticate with per-user API keys minted on the site (`POST /api/keys`), not
-  Firebase tokens.
+  Firebase tokens. Only linked accounts can mint keys (an anonymous uid is lost when the browser's data
+  is cleared). Keys are `ak_` + 32 random bytes, stored as SHA-256 hashes, and only `POST /api/uploads`
+  accepts them.
 
 ## 6. API changes
 
 New routes: `/api/me`, `/api/config` (Phase 3), `/api/versions`, `/api/realms` (Phase 3),
 `/api/prices` and `/api/prices/{item_id}` (tiered, Phase 3),
-`/api/uploads` (multipart `altarmy | auctionator | ahdb` plus `game_version`), `/api/snapshots` (JSON from
-the watcher), `/api/keys`, `/api/characters` (per user), `/api/coverage` (freshness per realm).
+`/api/uploads` (multipart `altarmy | auctionator`, later `ahdb`, plus `game_version`; also takes the
+watcher's gzipped files, Phase 4), `/api/keys` (Phase 4), `/api/characters` (per user),
+`/api/coverage` (freshness per realm). The planned `/api/snapshots` is dropped: the watcher uploads the raw
+files like the browser, so the server stays the only parser.
 
 Changed: `rank` and `evaluate` take `game_version` and `auction_house_id`; `/api/status` stops syncing files
 in hosted mode and `data_version` becomes per user, bumped on upload or merge. Handlers stay plain `def`
@@ -164,9 +176,29 @@ with a connection per request. `scripts/check.py` keeps regenerating `frontend/o
 1. **Browser upload.** Drop `AltArmy_TBC.lua` and `Auctionator.lua` on an Upload page. The server parses
    them with `altarmy.parse_characters` and `auctionator.parse_price_database`, stores only the extracted
    fields and discards the file. Size limit, progress, and a result summary.
-2. **CLI watcher.** `altarmy-profit watch --server URL --key KEY`. Refactor `service.sync` into pure steps
-   (find files via `prices.find_*`, detect mtime change, parse, build a snapshot) plus two sinks: the local
-   SQLite store and a remote POST to `/api/snapshots`. The flavor folder decides `game_version`.
+2. **CLI watcher.** `altarmy-profit watch --server URL --key KEY` (`watch.py`). It finds the files with
+   `prices.find_*`, keeps what it sent in a JSON state file of mtimes, and POSTs changed files gzipped to
+   `/api/uploads`. The flavor folder decides `game_version`. Local mode's `service.sync` stays as it is;
+   the two share the finders and the parsers.
+
+Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the watcher, API keys
+(Manage tab), revision `0003` (`uploads`, `api_keys`). Differences and limits:
+
+- An Auctionator upload records every realm in the file with prices, not just the uploader's. A realm key
+  first resolves to an auction house that already has it as an alias, then to one of the uploader's
+  character groups (named after their realm), then to a name parsed from the key. That way one realm
+  never splits into two auction houses, whichever upload came first; characters find an auction house
+  named after the key through `prices.find_auction_house_by_alias`.
+- `scanned_at` is the file's modified time, clamped to the 30 days before receipt. Auctionator counts
+  days in the player's local time, but the server decides "is the item's last day the scan day?" in its
+  own timezone. Near midnight an item can get the start of its day instead of the scan time. A later
+  fix: send the uploader's UTC offset.
+- Uploads bump only the uploader's `data_version` and invalidate only this process's cached markets. Other
+  users and other instances see pooled prices on their next refetch or cache rebuild (Phase 6's price
+  version).
+- Limits: 32 MB decompressed per file, 60 uploads per user per hour (rejected ones count). The parsers
+  cap nesting depth and turn malformed input into `ValueError` (400); a seeded fuzz test holds them to it.
+- Uploads are accepted as they come. Quarantine and trust are Phase 6.
 3. **Tray app** (later). A PyInstaller build of the watcher with auto-start.
 4. **Alt Army paste export** (later). The addon shows a compressed string (LibDeflate + base64) of the
    characters; the site has a paste box. Live data, no `/reload`.
@@ -219,7 +251,9 @@ Each phase ships on its own and local mode keeps working throughout.
    settings, tiers and the required-level gate, a Prices tab for the free tier; the file sync is local
    only. Tests use a fake token verifier; hosted mode was checked against the Firebase Auth emulator
    (sign in anonymously, gated prices, link an email, same uid now linked).
-4. **Uploaders.** Browser upload, CLI watcher, API keys.
+4. **Uploaders** (done). Browser upload, CLI watcher, API keys; email sign-in, password reset and sign-out.
+   Checked with the real files through the emulator (uploads, linking, the watcher's first and repeat
+   runs) and against `alt-army-prod` (anonymous and email sign-up, tokens verified by `firebase-admin`).
 5. **Deploy.** Cloud Run, Cloud SQL, Firebase Hosting, scheduler jobs, deploy from CI; monthly partitions
    for `price_observations`.
 6. **Pooling quality and performance.** Merge job, quarantine and trust, coverage page, rank cache and

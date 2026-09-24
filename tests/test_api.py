@@ -1,11 +1,13 @@
+import gzip
 import urllib.error
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection, select
 
-from altarmy_profit import altarmy, auth, db, ingest, prices, schema, service, store, users
+from altarmy_profit import altarmy, auth, db, ingest, prices, schema, service, store, uploads, users
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.api import create_app
 from altarmy_profit.versions import GameVersion
@@ -660,3 +662,108 @@ def test_price_history_newest_first(
     days = client.get("/api/prices/1", params={"auction_house_id": ah}).json()["days"]
     assert days and days[0]["low"] == 20
     assert [d["day"] for d in days] == sorted((d["day"] for d in days), reverse=True)
+
+
+# --- uploads and API keys ---------------------------------------------------------------------------
+def upload(
+    c: TestClient,
+    kind: str,
+    data: bytes,
+    headers: dict[str, str] | None = None,
+    *,
+    modified_at: int | None = None,
+    via: str = "browser",
+    filename: str = "x.lua",
+) -> Any:
+    form: dict[str, str] = {"kind": kind, "via": via}
+    if modified_at is not None:
+        form["modified_at"] = str(modified_at)
+    return c.post("/api/uploads", headers=headers or {}, data=form, files={"file": (filename, data)})
+
+
+def test_guests_upload_characters_and_prices(hosted: TestClient, conn: Connection) -> None:
+    res = upload(hosted, "altarmy", ALTARMY_SV, FREE)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert (body["kind"], body["characters"]) == ("altarmy", 4)
+    assert body["groups"][0] == {"realm": "Classic Beta PvE", "faction": "Alliance", "characters": 1}
+    assert store.count_characters(conn, "guest", FOREVER) == 4  # kept for when they link
+    assert hosted.get("/api/characters", headers=FREE).status_code == 403
+
+    data = _saved_variables({"ClassicBetaPvE": {"1": _entry(20), "2": _entry(100)}})
+    res = upload(hosted, "auctionator", gzip.compress(data), FREE, modified_at=1_790_000_000_000)
+    realm = res.json()["realms"][0]
+    assert (realm["key"], realm["realm"], realm["faction"], realm["items"]) == (
+        "ClassicBetaPvE",
+        "Classic Beta PvE",
+        "",
+        2,
+    )
+    realms = hosted.get("/api/realms", headers=FREE).json()
+    assert [(r["realm"], r["prices"]) for r in realms] == [("Classic Beta PvE", 2)]
+    history = hosted.get("/api/uploads", headers=FREE).json()
+    assert [(u["kind"], u["outcome"], u["via"]) for u in history] == [
+        ("auctionator", "accepted", "browser"),
+        ("altarmy", "accepted", "browser"),
+    ]
+    assert hosted.get("/api/status", headers=FREE).json()["data_version"] == 2
+
+
+def test_upload_refreshes_the_cached_market(client: TestClient, priced: Connection) -> None:
+    ah = client.get("/api/status").json()["auction_house_id"]
+    params = {"auction_house_id": ah, "q": "linen"}
+    assert client.get("/api/prices", params=params).json()["items"][0]["ah_price"] == 20
+    upload(client, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": {"m": 33}}}))
+    assert client.get("/api/prices", params=params).json()["items"][0]["ah_price"] == 33
+
+
+def test_bad_uploads(hosted: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    res = upload(hosted, "auctionator", b"garbage", LINKED)
+    assert res.status_code == 400
+    assert "AUCTIONATOR_PRICE_DATABASE" in res.json()["detail"]
+    (row,) = hosted.get("/api/uploads", headers=LINKED).json()
+    assert (row["outcome"], row["size"]) == ("rejected", 7)
+    assert upload(hosted, "cheese", b"x", LINKED).status_code == 422
+    assert upload(hosted, "altarmy", b"x").status_code == 401
+
+    monkeypatch.setattr(uploads, "MAX_BYTES", 1000)
+    assert upload(hosted, "altarmy", b"x" * 1001, LINKED).status_code == 413
+    assert upload(hosted, "altarmy", gzip.compress(b"x" * 5000), LINKED).status_code == 413
+
+    monkeypatch.setattr(uploads, "RATE_LIMIT", 3)
+    res = upload(hosted, "altarmy", ALTARMY_SV, LINKED)
+    assert res.status_code == 429  # the rejected ones count too
+
+
+def test_api_keys(hosted: TestClient, conn: Connection) -> None:
+    assert hosted.post("/api/keys", headers=FREE, json={"label": "pc"}).status_code == 403
+    made = hosted.post("/api/keys", headers=LINKED, json={"label": "gaming pc"}).json()
+    key = made["key"]
+    assert key.startswith("ak_") and made["prefix"] == key[:8] and made["label"] == "gaming pc"
+    stored: str = conn.execute(select(schema.api_keys.c.key_hash)).scalar_one()
+    assert key not in stored and len(stored) == 64
+    (listed,) = hosted.get("/api/keys", headers=LINKED).json()
+    assert "key" not in listed and listed["last_used_at"] is None
+
+    with_key = {"Authorization": f"Bearer {key}"}
+    res = upload(hosted, "altarmy", ALTARMY_SV, with_key, via="watcher")
+    assert res.status_code == 200
+    assert store.count_characters(conn, "g1", FOREVER) == 4
+    assert hosted.get("/api/rank", headers=with_key).status_code == 401  # keys only upload
+    assert hosted.get("/api/keys", headers=LINKED).json()[0]["last_used_at"] is not None
+
+    users.ensure_user(conn, auth.User("g2", "linked"))
+    theirs = {"Authorization": "Bearer google.com:g2"}
+    assert hosted.delete(f"/api/keys/{made['id']}", headers=theirs).status_code == 404
+    assert hosted.delete(f"/api/keys/{made['id']}", headers=LINKED).json() == []
+    assert upload(hosted, "altarmy", ALTARMY_SV, with_key).status_code == 401
+    assert upload(hosted, "altarmy", ALTARMY_SV, {"Authorization": "Bearer ak_madeup"}).status_code == 401
+
+
+def test_local_mode_uploads_as_the_local_user(client: TestClient, conn: Connection) -> None:
+    assert upload(client, "altarmy", ALTARMY_SV).status_code == 200
+    assert store.count_characters(conn, ME, FOREVER) == 4
+    made = client.post("/api/keys", json={"label": "x"}).json()
+    assert (
+        upload(client, "altarmy", ALTARMY_SV, {"Authorization": f"Bearer {made['key']}"}).status_code == 200
+    )

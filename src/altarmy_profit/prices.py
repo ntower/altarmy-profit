@@ -73,9 +73,8 @@ def auctionator_auction_house(conn: Connection, game_version: str, key: str, rea
     return ah
 
 
-def auction_house_for_auctionator_key(conn: Connection, game_version: str, key: str) -> int:
-    """The auction house an Auctionator realm key names: a known alias, else parsed from the key (a
-    trailing faction means a split auction house; the realm is then as Auctionator spells it)."""
+def find_auction_house_by_key(conn: Connection, game_version: str, key: str) -> int | None:
+    """The auction house that has Auctionator realm `key` as an alias, if any."""
     t, a = schema.auction_houses, schema.realm_aliases
     found = conn.execute(
         select(t.c.id)
@@ -84,8 +83,26 @@ def auction_house_for_auctionator_key(conn: Connection, game_version: str, key: 
         .order_by(t.c.id)
         .limit(1)
     ).scalar_one_or_none()
+    return None if found is None else int(found)
+
+
+def find_auction_house_by_alias(conn: Connection, game_version: str, realm: str, faction: str) -> int | None:
+    """The auction house a realm/faction's characters use when it was named after Auctionator's key (a
+    scan uploaded before the characters): the key forms `service.match_auctionator_realm` tries."""
+    nospace = realm.replace(" ", "")
+    for key in dict.fromkeys((f"{nospace} {faction}", nospace, f"{realm} {faction}", realm)):
+        found = find_auction_house_by_key(conn, game_version, key)
+        if found is not None:
+            return found
+    return None
+
+
+def auction_house_for_auctionator_key(conn: Connection, game_version: str, key: str) -> int:
+    """The auction house an Auctionator realm key names: a known alias, else parsed from the key (a
+    trailing faction means a split auction house; the realm is then as Auctionator spells it)."""
+    found = find_auction_house_by_key(conn, game_version, key)
     if found is not None:
-        return int(found)
+        return found
     realm, _, faction = key.rpartition(" ")
     if faction not in ("Horde", "Alliance") or not realm:
         realm, faction = key, ""

@@ -10,6 +10,7 @@ import { AuthProvider } from './AuthProvider'
 vi.mock('../lib/auth', () => ({
   initAuth: vi.fn(async () => {}),
   getIdToken: vi.fn(async () => 'id-token'),
+  onUserChange: vi.fn(() => () => {}),
 }))
 
 const firebase = {

@@ -19,6 +19,7 @@ _SKIP = re.compile(rb"(?:\s+|--[^\n]*)*")
 _NAME = re.compile(rb"[A-Za-z_]\w*")
 _NUMBER = re.compile(rb"-?(?:0[xX][0-9a-fA-F]+|(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)")
 _ASSIGN = re.compile(rb"\s*=(?!=)")
+MAX_DEPTH = 64  # real SavedVariables nest a handful of levels; uploads are untrusted
 
 
 def parse_assignments(data: bytes) -> dict[str, LuaValue]:
@@ -36,8 +37,10 @@ def parse_assignments(data: bytes) -> dict[str, LuaValue]:
 
 
 def lua_string(text: bytes, pos: int) -> tuple[bytes, int]:
-    """Decode the quoted Lua string starting at `pos`; returns (bytes, position after closing quote)."""
-    assert text[pos : pos + 1] == b'"'
+    """Decode the quoted Lua string starting at `pos`; returns (bytes, position after closing quote).
+    ValueError if there is no string there; IndexError if it never ends."""
+    if text[pos : pos + 1] != b'"':
+        raise ValueError(f"expected a string at byte {pos}")
     pos += 1
     out = bytearray()
     while True:
@@ -51,7 +54,8 @@ def lua_string(text: bytes, pos: int) -> tuple[bytes, int]:
         nxt = text[pos + 1 : pos + 2]
         if nxt.isdigit():
             digits = re.match(rb"\d{1,3}", text[pos + 1 : pos + 4])
-            assert digits
+            if not digits or int(digits.group()) > 255:
+                raise ValueError(f"bad escape in string at byte {pos}")
             out.append(int(digits.group()))
             pos += 1 + len(digits.group())
         else:
@@ -63,6 +67,7 @@ class _Parser:
     def __init__(self, data: bytes) -> None:
         self.data = data
         self.pos = 0
+        self.depth = 0
 
     def error(self, what: str) -> ValueError:
         return ValueError(f"Lua syntax error at byte {self.pos}: {what}")
@@ -100,6 +105,15 @@ class _Parser:
         raise self.error("expected a value")
 
     def table(self) -> LuaTable:
+        self.depth += 1
+        if self.depth > MAX_DEPTH:
+            raise self.error("tables nested too deeply")
+        try:
+            return self._table()
+        finally:
+            self.depth -= 1
+
+    def _table(self) -> LuaTable:
         self.pos += 1  # "{"
         out: LuaTable = {}
         n = 0

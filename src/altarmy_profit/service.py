@@ -69,9 +69,13 @@ class MarketCache:
                 self._markets[auction_house_id] = market
             return market
 
-    def invalidate(self) -> None:
+    def invalidate(self, auction_house_ids: Iterable[int] | None = None) -> None:
+        """Drop the cached markets of these auction houses (default: all)."""
         with self._lock:
-            self._markets.clear()
+            if auction_house_ids is None:
+                self._markets.clear()
+            for ah in auction_house_ids or ():
+                self._markets.pop(ah, None)
 
 
 @dataclass(frozen=True)
@@ -185,9 +189,14 @@ def selected_characters(
 
 
 def auction_house_of(conn: Connection, game_version: str, sel: Selection | None) -> int | None:
-    """The auction house that prices a selection (the unnamed one without characters); None if unknown."""
-    realm, faction = (sel.realm, sel.faction) if sel is not None else ("", "")
-    return prices.find_auction_house(conn, game_version, realm, faction)
+    """The auction house that prices a selection (the unnamed one without characters); None if unknown.
+    One named after an Auctionator key (its scan came before the characters) is found by that alias."""
+    if sel is None:
+        return prices.find_auction_house(conn, game_version, "", "")
+    found = prices.find_auction_house(conn, game_version, sel.realm, sel.faction)
+    if found is None:
+        found = prices.find_auction_house_by_alias(conn, game_version, sel.realm, sel.faction)
+    return found
 
 
 def selected_auction_house(conn: Connection, user_uid: str, game_version: str) -> int | None:

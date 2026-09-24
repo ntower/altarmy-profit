@@ -1,11 +1,15 @@
+import contextlib
+import random
 from datetime import date
 from pathlib import Path
 
 import pytest
 from sqlalchemy import Connection, select
 
-from altarmy_profit import auctionator, cli, ingest, prices, schema
+from altarmy_profit import altarmy, auctionator, cli, ingest, prices, schema
 from altarmy_profit.auctionator import DayStats, ItemPrice
+
+from .test_altarmy import ALTARMY_SV
 
 FOREVER = "forever"  # (conftest imports this module, so it can't import conftest's)
 
@@ -139,3 +143,43 @@ def test_cli_import_auctionator(tmp_path: Path, capsys: pytest.CaptureFixture[st
     dbfile = tmp_path / "t.sqlite"
     cli.main(["--db", str(dbfile), "import-auctionator", str(f)])
     assert "Imported 1 prices from realm R" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    "blob",
+    [
+        bytes([0x81]) * 5000 + b"\x00",  # arrays nested 5000 deep
+        _cbor({"1": _entry(5)})[:-3],  # truncated
+        bytes([0xA1, 0x01, 0xF8]),  # a simple value Auctionator never writes
+    ],
+    ids=["deep", "truncated", "unknown-simple"],
+)
+def test_malformed_cbor_is_a_value_error(blob: bytes) -> None:
+    text = b'AUCTIONATOR_PRICE_DATABASE = {\n["Realm"] = "' + _lua_escape(blob) + b'",\n}\n'
+    with pytest.raises(ValueError):
+        auctionator.parse_price_database(text)
+
+
+def test_truncated_lua_table_is_a_value_error() -> None:
+    with pytest.raises(ValueError):
+        auctionator.parse_price_database(b'AUCTIONATOR_PRICE_DATABASE = {\n["Realm')
+
+
+def _mangled(seeds: list[bytes], rng: random.Random) -> bytes:
+    b = bytearray(rng.choice(seeds))
+    if rng.random() < 0.4:
+        return bytes(b[: rng.randrange(len(b))])
+    for _ in range(rng.randrange(1, 8)):
+        b[rng.randrange(len(b))] = rng.randrange(256)
+    return bytes(b)
+
+
+def test_mangled_files_only_raise_value_error() -> None:
+    """Uploads are untrusted: whatever the bytes, parsing either succeeds or raises ValueError (a 400)."""
+    rng = random.Random(1)
+    prices = [_saved_variables({"R": {"1": _entry(5), "g:2:3": _entry(7)}, "S": {"4": {"m": 1}}})]
+    for _ in range(1500):
+        with contextlib.suppress(ValueError):
+            auctionator.parse_price_database(_mangled(prices, rng))
+        with contextlib.suppress(ValueError):
+            altarmy.parse_characters(_mangled([ALTARMY_SV], rng))

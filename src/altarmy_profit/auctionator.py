@@ -22,6 +22,8 @@ _TABLE = b"AUCTIONATOR_PRICE_DATABASE = {"
 _ESCAPES = {b"n": 10, b"r": 13, b"t": 9, b"a": 7, b"b": 8, b"f": 12, b"v": 11, b"\n": 10}
 _ITEM_KEY = re.compile(r"(?:g:)?(\d+)(?::.*)?")
 DAY_ZERO = date(2020, 1, 1)
+MAX_DEPTH = 32  # Auctionator's CBOR nests three levels; uploads are untrusted
+MAX_DAY = 100 * 366  # day numbers past a century from DAY_ZERO are corrupt data
 
 
 @dataclass(frozen=True)
@@ -50,8 +52,15 @@ def parse_price_database(text: bytes) -> dict[str, dict[int, ItemPrice]]:
     if start < 0:
         raise ValueError("no AUCTIONATOR_PRICE_DATABASE in file (is this the account-wide Auctionator.lua?)")
     realms: dict[str, dict[int, ItemPrice]] = {}
-    for key, blob in _table_strings(text, start + len(_TABLE)):
-        data, _ = _cbor(blob, 0)
+    try:
+        entries = _table_strings(text, start + len(_TABLE))
+    except IndexError:
+        raise ValueError("AUCTIONATOR_PRICE_DATABASE is truncated") from None
+    for key, blob in entries:
+        try:
+            data, _ = _cbor(blob, 0)
+        except (IndexError, KeyError, struct.error) as e:
+            raise ValueError(f"malformed price data for {key}") from e
         if isinstance(data, dict):
             realms[key] = _item_prices(data)
     return realms
@@ -114,6 +123,7 @@ def _days(entry: dict[object, object]) -> dict[date, DayStats]:
     return {
         DAY_ZERO + timedelta(days=day): DayStats(h, min(h, low.get(day, h)), available.get(day))
         for day, h in sorted(high.items())
+        if 0 <= day <= MAX_DAY
     }
 
 
@@ -140,8 +150,11 @@ def _table_strings(text: bytes, pos: int) -> list[tuple[str, bytes]]:
             pos += 1
 
 
-def _cbor(b: bytes, i: int) -> tuple[object, int]:
-    """Minimal CBOR decoder (definite lengths only), enough for Auctionator's serializer."""
+def _cbor(b: bytes, i: int, depth: int = 0) -> tuple[object, int]:
+    """Minimal CBOR decoder (definite lengths only), enough for Auctionator's serializer. Truncated data
+    raises IndexError (or struct.error), an unknown simple value KeyError."""
+    if depth > MAX_DEPTH:
+        raise ValueError(f"CBOR nested too deeply at byte {i}")
     major, info = b[i] >> 5, b[i] & 31
     i += 1
     if major == 7:
@@ -165,19 +178,23 @@ def _cbor(b: bytes, i: int) -> tuple[object, int]:
     if major == 1:
         return -1 - n, i
     if major in (2, 3):
+        if i + n > len(b):
+            raise IndexError("string runs past the end")
         return b[i : i + n].decode("utf-8", "replace"), i + n
     if major == 4:
         items = []
         for _ in range(n):
-            v, i = _cbor(b, i)
+            v, i = _cbor(b, i, depth + 1)
             items.append(v)
         return items, i
     if major == 5:
         d: dict[object, object] = {}
         for _ in range(n):
-            k, i = _cbor(b, i)
-            d[k], i = _cbor(b, i)
+            k, i = _cbor(b, i, depth + 1)
+            if isinstance(k, dict | list):
+                raise ValueError(f"CBOR map key is not a scalar at byte {i}")
+            d[k], i = _cbor(b, i, depth + 1)
         return d, i
     if major == 6:  # tag: ignore it, return the tagged value
-        return _cbor(b, i)
+        return _cbor(b, i, depth + 1)
     raise ValueError(f"unsupported CBOR major type {major}")
