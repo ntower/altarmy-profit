@@ -31,3 +31,6 @@ export function mockApi(routes: Record<string, unknown>) {
   vi.stubGlobal('fetch', fetch)
   return fetch
 }
+
+/** An element's text with the non-breaking spaces that pad money amounts shown as `_`, e.g. `_5 _0` for 5s 0c. */
+export const shown = (el: Element | null) => el?.textContent?.replaceAll('\u00a0', '_')

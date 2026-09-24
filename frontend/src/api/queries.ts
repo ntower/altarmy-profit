@@ -129,6 +129,37 @@ function showError(title: string) {
   return (error: Error) => notifications.show({ color: 'red', title, message: error.message })
 }
 
+/** Items never sold on the AH: searches only vendor or disenchant them. */
+export function useAhBlocked() {
+  return useQuery({
+    queryKey: ['ah-blocked'],
+    queryFn: () => call(client.GET('/api/ah-blocked')),
+  })
+}
+
+/** Never sell an item on the AH, or allow it again; searches and re-costed plans are refetched. */
+export function useSetAhBlocked() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ itemId, blocked }: { itemId: number; blocked: boolean }) => {
+      const params = { params: { path: { item_id: itemId } } }
+      return call(blocked ? client.PUT('/api/ah-blocked/{item_id}', params) : client.DELETE('/api/ah-blocked/{item_id}', params))
+    },
+    onSuccess: (list, { itemId, blocked }) => {
+      queryClient.setQueryData(['ah-blocked'], list)
+      if (blocked) {
+        const name = list.details[itemId]?.name ?? `Item ${itemId}`
+        notifications.show({
+          title: `${name} won't be sold on the auction house`,
+          message: 'Allow it again from its menu or the Manage tab.',
+        })
+      }
+      return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'rank' || q.queryKey[0] === 'evaluate' })
+    },
+    onError: showError('Could not update the auction house list'),
+  })
+}
+
 /** Every mutation changes the database, so refetch everything afterwards. */
 function useInvalidateAll() {
   const queryClient = useQueryClient()

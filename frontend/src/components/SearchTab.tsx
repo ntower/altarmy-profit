@@ -17,7 +17,17 @@ import {
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
 import type { CharacterGroup, Selection } from '../api/client'
-import { type Exit, type RankParams, useCharacters, useDataVersion, useRank, useSelectRealm, useStatus } from '../api/queries'
+import {
+  type Exit,
+  type RankParams,
+  useAhBlocked,
+  useCharacters,
+  useDataVersion,
+  useRank,
+  useSelectRealm,
+  useSetAhBlocked,
+  useStatus,
+} from '../api/queries'
 import { goldToCopper } from '../lib/money'
 import { useStoredState } from '../lib/storage'
 import { CharacterName } from './CharacterName'
@@ -55,6 +65,9 @@ function Results({ filters }: { filters: Filters }) {
   const top = page.filters === filters ? page.top : PAGE
   const rank = useRank({ ...filters, top })
   const version = useDataVersion()
+  const ahBlockedList = useAhBlocked().data
+  const ahBlocked = useMemo(() => new Set(ahBlockedList?.items.map((i) => i.item_id)), [ahBlockedList])
+  const { mutate: setAhBlocked } = useSetAhBlocked()
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
   const { results, total } = rank.data
@@ -68,6 +81,8 @@ function Results({ filters }: { filters: Filters }) {
         items={rank.data.items}
         classes={rank.data.classes}
         params={{ includeUnlearned: filters.includeUnlearned, exits: filters.exits, version }}
+        ahBlocked={ahBlocked}
+        onSetAhBlocked={(itemId, blocked) => setAhBlocked({ itemId, blocked })}
       />
       {total > results.length && (
         <Group justify="center">
@@ -151,7 +166,8 @@ export function SearchTab() {
   // Money in gold and ROI in percent, as typed; converted for the API below.
   const [minCost, setMinCost] = useStoredState('wowprofit.search.minCost', bound, 0)
   const [maxCost, setMaxCost] = useStoredState('wowprofit.search.maxCost', bound, null)
-  const [minProfit, setMinProfit] = useStoredState('wowprofit.search.minProfit', bound, 0)
+  // 1 copper: only profitable recipes by default.
+  const [minProfit, setMinProfit] = useStoredState('wowprofit.search.minProfit', bound, 0.0001)
   const [maxProfit, setMaxProfit] = useStoredState('wowprofit.search.maxProfit', bound, null)
   const [minRoi, setMinRoi] = useStoredState('wowprofit.search.minRoi', bound, 0)
   const [maxRoi, setMaxRoi] = useStoredState('wowprofit.search.maxRoi', bound, null)

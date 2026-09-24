@@ -77,6 +77,12 @@ CREATE TABLE IF NOT EXISTS prices (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Items the user never wants sold on the AH (only vendor or disenchant). Ingest leaves them alone.
+CREATE TABLE IF NOT EXISTS ah_blocked (
+    item_id INTEGER PRIMARY KEY,
+    added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 
 -- Characters from the Alt Army addon's SavedVariables, replaced wholesale on every import. Ingest leaves

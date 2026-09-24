@@ -196,6 +196,29 @@ def test_rank_lists_options_and_evaluate_applies_choices(
     assert client.post("/api/evaluate", json=only_ah).status_code == 404
 
 
+def test_ah_blocked_items_are_never_sold_on_the_ah(client: TestClient, priced: sqlite3.Connection) -> None:
+    prices.set_price(priced, 3, 1000)  # the robe sells for 950 on the AH, 500 at a vendor
+    priced.commit()
+    assert client.get("/api/ah-blocked").json() == {"items": [], "details": {}}
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["best_exit"] == "ah"
+
+    blocked = client.put("/api/ah-blocked/3").json()
+    assert [i["item_id"] for i in blocked["items"]] == [3]
+    assert blocked["items"][0]["added_at"]
+    robe = blocked["details"]["3"]
+    assert (robe["name"], robe["ah_price"]) == ("Green Robe", 1000)
+    assert client.get("/api/ah-blocked").json() == blocked
+    (r,) = client.get("/api/rank").json()["results"]
+    assert (r["best_exit"], [e["kind"] for e in r["exits"]]) == ("vendor", ["vendor"])
+    got = client.post("/api/evaluate", json={"recipe_id": r["recipe_id"], "choices": {"sell": "ah"}}).json()
+    assert got["result"]["best_exit"] == "vendor"
+
+    assert client.delete("/api/ah-blocked/3").json() == {"items": [], "details": {}}
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["best_exit"] == "ah"
+
+
 def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connection) -> None:
     def total(**params: str | int | float | list[str]) -> int:
         body = client.get("/api/rank", params=params).json()

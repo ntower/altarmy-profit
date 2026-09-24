@@ -126,3 +126,18 @@ def load_characters(conn: sqlite3.Connection) -> list[Character]:
         )
         for r in conn.execute("SELECT * FROM characters ORDER BY realm, name")
     ]
+
+
+def load_ah_blocked(conn: sqlite3.Connection) -> list[tuple[int, str]]:
+    """Items never to sell on the AH as (item id, when added, UTC CURRENT_TIMESTAMP text), newest first."""
+    rows = conn.execute("SELECT item_id, added_at FROM ah_blocked ORDER BY added_at DESC, item_id")
+    return [(r["item_id"], r["added_at"]) for r in rows]
+
+
+def set_ah_blocked(conn: sqlite3.Connection, item_id: int, blocked: bool) -> None:
+    """Never sell `item_id` on the AH, or allow it again."""
+    with conn:
+        if blocked:
+            conn.execute("INSERT OR IGNORE INTO ah_blocked(item_id) VALUES (?)", (item_id,))
+        else:
+            conn.execute("DELETE FROM ah_blocked WHERE item_id = ?", (item_id,))

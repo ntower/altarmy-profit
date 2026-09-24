@@ -1,12 +1,12 @@
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
-import { renderWithProviders } from '../test/utils'
+import { renderWithProviders, shown } from '../test/utils'
 import { linen, robe, thread } from '../test/items'
 import { ItemLink, ItemTooltip, RecipeTooltip } from './ItemTooltip'
 
 /** The element whose own text content (including children) is exactly `text`. */
-const line = (text: string) => screen.getByText((_, el) => el?.textContent === text && el.children.length > 0)
+const line = (text: string) => screen.getByText((_, el) => shown(el) === text && el!.children.length > 0)
 
 describe('ItemTooltip', () => {
   it('shows the in-game lines for an item', () => {
@@ -18,7 +18,7 @@ describe('ItemTooltip', () => {
     expect(screen.getByText('Requires Level 12')).toBeInTheDocument()
     expect(screen.getByText('Requires Tailoring (50)')).toBeInTheDocument()
     expect(screen.getByText('"Soft and green."')).toBeInTheDocument()
-    expect(line('Sell Price: 2 16')).toBeInTheDocument()
+    expect(line('Sell Price: _2 16')).toBeInTheDocument()
     expect(screen.queryByText(/Auction:|Vendor:/)).not.toBeInTheDocument()
     expect(screen.getByRole('presentation')).toHaveAttribute(
       'src',
@@ -35,7 +35,7 @@ describe('ItemTooltip', () => {
 
   it('adds the vendor price of vendor-sold items', () => {
     renderWithProviders(<ItemTooltip item={thread} />)
-    expect(line('Vendor: 1')).toBeInTheDocument()
+    expect(line('Vendor: _1 _0')).toBeInTheDocument()
   })
 
   it('shows reagents above the crafted item on a recipe', () => {

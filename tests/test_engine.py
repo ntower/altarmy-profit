@@ -31,6 +31,7 @@ def make_market(
     crafters: Sequence[Crafter] = (),
     include_unlearned: bool = False,
     exits: frozenset[str] = ALL_EXITS,
+    no_ah: frozenset[int] = frozenset(),
 ) -> Market:
     items = {
         LINEN: Item(LINEN, "Linen Cloth"),
@@ -54,6 +55,7 @@ def make_market(
         crafters=crafters,
         include_unlearned=include_unlearned,
         exits=exits,
+        no_ah=no_ah,
     )
 
 
@@ -236,6 +238,20 @@ def test_only_allowed_exits_are_used() -> None:
     assert (res.best_exit, res.revenue) == ("vendor", 500)
     assert [e.kind for e in res.exits] == ["vendor"]
     assert make_market(prices, exits=frozenset({"disenchant"})).evaluate(ROBE) is None
+
+
+def test_items_never_sold_on_the_ah_use_the_other_exits() -> None:
+    prices = {LINEN: 20, THREAD: 100, GREEN: 1000}
+    res = must_evaluate(make_market(prices, no_ah=frozenset({GREEN})), ROBE)
+    assert (res.best_exit, res.revenue) == ("vendor", 500)
+    assert [e.kind for e in res.exits] == ["vendor"]
+    only_ah = make_market(prices, exits=frozenset({"ah"}), no_ah=frozenset({GREEN}))
+    assert only_ah.evaluate(ROBE) is None
+
+
+def test_items_never_sold_on_the_ah_can_still_be_bought_there() -> None:
+    res = must_evaluate(make_market({LINEN: 20, THREAD: 100}, no_ah=frozenset({THREAD})), ROBE)
+    assert res.steps[1] == Step("buy", THREAD, "Coarse Thread", 1, -100, via="ah")
 
 
 def test_filters_bounds_are_inclusive_and_optional() -> None:

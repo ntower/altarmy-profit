@@ -1,6 +1,49 @@
 {
   "components": {
     "schemas": {
+      "AhBlocked": {
+        "description": "Items never sold on the AH: only vendored or disenchanted.",
+        "properties": {
+          "details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ItemInfo"
+            },
+            "title": "Details",
+            "type": "object"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AhBlockedItem"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items",
+          "details"
+        ],
+        "title": "AhBlocked",
+        "type": "object"
+      },
+      "AhBlockedItem": {
+        "properties": {
+          "added_at": {
+            "title": "Added At",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "item_id",
+          "added_at"
+        ],
+        "title": "AhBlockedItem",
+        "type": "object"
+      },
       "CharacterOut": {
         "properties": {
           "class_file": {
@@ -1074,6 +1117,102 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/ah-blocked": {
+      "get": {
+        "operationId": "get_ah_blocked_api_ah_blocked_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AhBlocked"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Ah Blocked"
+      }
+    },
+    "/api/ah-blocked/{item_id}": {
+      "delete": {
+        "description": "Allow selling `item_id` on the AH again.",
+        "operationId": "unblock_ah_api_ah_blocked__item_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AhBlocked"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unblock Ah"
+      },
+      "put": {
+        "description": "Never sell `item_id` on the AH: /api/rank and /api/evaluate only vendor or disenchant it.",
+        "operationId": "block_ah_api_ah_blocked__item_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "item_id",
+            "required": true,
+            "schema": {
+              "title": "Item Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AhBlocked"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Block Ah"
+      }
+    },
     "/api/altarmy/files": {
       "get": {
         "operationId": "get_altarmy_files_api_altarmy_files_get",

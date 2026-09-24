@@ -4,9 +4,9 @@ import { Controls, Handle, Panel, Position, ReactFlow, type NodeProps, type Node
 import type { FlowNode, ItemMap, RankResult } from '../api/client'
 import { SELL_PATH } from '../lib/choices'
 import { buildFlow, type ItemFlowNode, type MailFlowNode, type SellFlowNode } from '../lib/flow'
-import { formatMoney } from '../lib/money'
 import { CharacterName } from './CharacterName'
 import { DisenchantHover, ItemLink } from './ItemTooltip'
+import { Money } from './Money'
 import classes from './RecipeFlow.module.css'
 
 const MAX_HEIGHT = 480
@@ -20,10 +20,17 @@ const SELL_TEXT: Record<string, string> = {
   disenchant: 'Disenchant, sell the materials',
 }
 
+/** Money made: green, or red with a minus sign when it is a loss. */
+const Earned = ({ copper }: { copper: number }) => (
+  <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
+    <Money copper={copper} />
+  </Text>
+)
+
 /** Picks another source (or exit) at a tree path; absent when the chart is read-only. */
 const ChooseContext = createContext<((path: string, key: string) => void) | undefined>(undefined)
 
-type Choice = { key: string; label: ReactNode; amount: string; current: boolean }
+type Choice = { key: string; label: ReactNode; amount: ReactNode; current: boolean }
 
 /** The button in a node's top-right corner listing its alternatives, best first. */
 function ChoiceMenu({ label, path, choices }: { label: string; path: string; choices: Choice[] }) {
@@ -93,15 +100,19 @@ function ItemNode({ data, items }: NodeProps<ItemFlowNode> & { items: ItemMap })
           choices={options.map((o) => ({
             key: o.key,
             label: optionLabel(o, holder),
-            amount: formatMoney(-o.cost),
+            amount: <Money copper={o.cost} cost />,
             current: o.key === option,
           }))}
         />
       </div>
       <div className={classes.detail}>
-        {via
-          ? `Craft ${crafts}x ${via}${spare > 0 ? ` (${spare} spare)` : ''}`
-          : `Buy ${BUY_FROM[source] ?? source} · ${formatMoney(-cost)}`}
+        {via ? (
+          `Craft ${crafts}x ${via}${spare > 0 ? ` (${spare} spare)` : ''}`
+        ) : (
+          <>
+            Buy {BUY_FROM[source] ?? source} · <Money copper={cost} cost />
+          </>
+        )}
       </div>
       {crafter && (
         <div className={classes.detail}>
@@ -122,7 +133,7 @@ function MailNode({ data: { to, postage, quantity } }: NodeProps<MailFlowNode>) 
           Mail {quantity}x to <CharacterName name={to} />
         </span>
       </div>
-      <div className={classes.detail}>Postage · {formatMoney(-postage)}</div>
+      <div className={classes.detail}>Postage · <Money copper={postage} cost /></div>
       <Handle type="source" position={Position.Right} className={classes.handle} />
     </div>
   )
@@ -153,16 +164,17 @@ function SellNode({
           choices={options.map((o) => ({
             key: o.kind,
             label: SELL_TEXT[o.kind] ?? `Sell via ${o.kind}`,
-            amount: `profit ${formatMoney(o.profit)}`,
+            amount: (
+              <>
+                profit <Earned copper={o.profit} />
+              </>
+            ),
             current: o.kind === exit,
           }))}
         />
       </div>
       <div className={classes.detail}>
-        +{formatMoney(revenue)} · profit{' '}
-        <span style={{ color: `var(--mantine-color-${profit < 0 ? 'red' : 'teal'}-text)` }}>
-          {formatMoney(profit)}
-        </span>
+        Gross <Earned copper={revenue} /> · Net <Earned copper={profit} />
       </div>
       {exit === 'disenchant' && seller && (
         <div className={classes.detail}>

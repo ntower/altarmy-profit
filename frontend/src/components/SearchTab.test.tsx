@@ -40,15 +40,15 @@ describe('SearchTab', () => {
     localStorage.setItem('wowprofit.search.includeUnlearned', 'true')
     localStorage.setItem('wowprofit.search.open', JSON.stringify(['advanced', 'characters']))
     localStorage.setItem('wowprofit.search.exits', JSON.stringify(['ah', 'vendor']))
-    localStorage.setItem('wowprofit.search.minProfit', JSON.stringify(1.5))
+    localStorage.setItem('wowprofit.search.minCost', JSON.stringify(0.5))
     localStorage.setItem('wowprofit.search.maxCost', JSON.stringify(20))
     localStorage.setItem('wowprofit.search.minRoi', 'null')
     localStorage.setItem('wowprofit.search.maxRoi', JSON.stringify(250))
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': noResults })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByLabelText('Min profit (gold)')).toHaveValue('1.5')
+    expect(await screen.findByLabelText('Min cost (gold)')).toHaveValue('0.5')
     expect(screen.getByLabelText('Max cost (gold)')).toHaveValue('20')
-    expect(screen.getByLabelText('Min cost (gold)')).toHaveValue('0')
+    expect(screen.getByLabelText('Min profit (gold)')).toHaveValue('0.0001')
     expect(screen.getByLabelText('Min ROI (%)')).toHaveValue('')
     expect(screen.getByRole('checkbox', { name: 'Auction house' })).toBeChecked()
     expect(screen.getByRole('checkbox', { name: 'Disenchant' })).not.toBeChecked()
@@ -60,7 +60,7 @@ describe('SearchTab', () => {
     await screen.findByText(/No recipes match these filters/)
     const [rank] = urls(fetch, '/api/rank')
     expect(rank?.searchParams.toString()).toBe(
-      'include_unlearned=true&exits=vendor&exits=ah&min_cost=0&max_cost=200000&min_profit=15000&max_roi=2.5&top=50',
+      'include_unlearned=true&exits=vendor&exits=ah&min_cost=5000&max_cost=200000&min_profit=1&max_roi=2.5&top=50',
     )
   })
 

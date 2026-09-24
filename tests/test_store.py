@@ -50,3 +50,18 @@ def test_characters_round_trip_and_replace(conn: sqlite3.Connection) -> None:
     assert store.load_characters(conn) == chars
     store.save_characters(conn, chars[:1])
     assert store.load_characters(conn) == chars[:1]
+
+
+def test_ah_blocked_round_trip_survives_ingest(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
+    ingest.build_db(db2_paths, conn)
+    assert store.load_ah_blocked(conn) == []
+    store.set_ah_blocked(conn, 3, True)
+    store.set_ah_blocked(conn, 3, True)  # already there: kept once
+    store.set_ah_blocked(conn, 1, True)
+    ingest.build_db(db2_paths, conn)
+    assert sorted(i for i, _ in store.load_ah_blocked(conn)) == [1, 3]
+    store.set_ah_blocked(conn, 1, False)
+    store.set_ah_blocked(conn, 42, False)  # not there: nothing to do
+    ((item_id, added_at),) = store.load_ah_blocked(conn)
+    assert item_id == 3
+    assert added_at  # SQLite CURRENT_TIMESTAMP text

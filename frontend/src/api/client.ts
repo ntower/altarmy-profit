@@ -15,6 +15,8 @@ export type CharacterGroup = components['schemas']['GroupOut']
 export type Selection = components['schemas']['SelectionModel']
 export type Sources = components['schemas']['Sources']
 export type UpdateResult = components['schemas']['UpdateResult']
+/** Items never sold on the AH, with tooltip details. */
+export type AhBlocked = components['schemas']['AhBlocked']
 
 export const client = createClient<paths>({
   baseUrl: globalThis.location?.origin ?? '',

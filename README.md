@@ -49,9 +49,12 @@ it once with `npm run build` in `frontend/`. It has two tabs:
   recipe to see its plan as a flow chart or steps. Where a material could come from elsewhere (vendor,
   AH, or a craft), or the output could be sold another way, the node's ⇄ menu lists the options, best
   first. Picking one re-costs the recipe, adding or removing buy, craft and mail steps, and the row
-  shows the changed numbers. **Reset** goes back to the best plan.
-- **Manage** downloads the latest game data (the newest `wow_classic_beta` build on wago.tools; prices
-  are kept) and shows the addon files in use.
+  shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
+  **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
+  bought there).
+- **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
+  the latest game data (the newest `wow_classic_beta` build on wago.tools; prices are kept) and shows
+  the addon files in use.
 
 The UI reads `AltArmy_TBC.lua` and `Auctionator.lua` itself: it finds them under the usual WoW install
 folders (preferring `_classic_beta_`; paste another path on Manage) and re-imports either one whenever

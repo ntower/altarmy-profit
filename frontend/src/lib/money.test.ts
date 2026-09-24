@@ -1,14 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatMoney, formatRoi, goldToCopper } from './money'
-
-describe('formatMoney', () => {
-  it('matches engine.format_money', () => {
-    expect(formatMoney(0)).toBe('0g 00s 00c')
-    expect(formatMoney(200)).toBe('0g 02s 00c')
-    expect(formatMoney(123456)).toBe('12g 34s 56c')
-    expect(formatMoney(-10203)).toBe('-1g 02s 03c')
-  })
-})
+import { formatRoi, goldToCopper } from './money'
 
 describe('goldToCopper', () => {
   it('rounds to whole copper', () => {

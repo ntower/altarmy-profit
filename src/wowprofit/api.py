@@ -210,6 +210,18 @@ class EvaluateResponse(BaseModel):
     items: dict[int, ItemInfo]  # every item the result mentions, for tooltips
 
 
+class AhBlockedItem(BaseModel):
+    item_id: int
+    added_at: str  # SQLite CURRENT_TIMESTAMP text, UTC
+
+
+class AhBlocked(BaseModel):
+    """Items never sold on the AH: only vendored or disenchanted."""
+
+    items: list[AhBlockedItem]  # newest first
+    details: dict[int, ItemInfo]  # for tooltips
+
+
 class UpdateResult(BaseModel):
     build: str
     updated: bool  # False if only_if_new and the database already held this build
@@ -427,8 +439,9 @@ def get_rank(
     base = state.cache.get()
     with _connect(state) as conn:
         _, chars = service.selected_characters(conn)
+        no_ah = _no_ah(conn)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
-    matches = service.search(base, chars, include_unlearned, filters, frozenset(exits))
+    matches = service.search(base, chars, include_unlearned, filters, frozenset(exits), no_ah)
     results = matches[:top]
     crafters = altarmy.crafters(chars)
     return RankResponse(
@@ -446,8 +459,9 @@ def evaluate(request: Request, body: EvaluateRequest) -> EvaluateResponse:
     base = state.cache.get()
     with _connect(state) as conn:
         _, chars = service.selected_characters(conn)
+        no_ah = _no_ah(conn)
     r = service.evaluate(
-        base, chars, body.include_unlearned, frozenset(body.exits), body.recipe_id, body.choices
+        base, chars, body.include_unlearned, frozenset(body.exits), body.recipe_id, body.choices, no_ah
     )
     if r is None:
         raise HTTPException(404, "These characters can't craft and sell that recipe.")
@@ -466,7 +480,13 @@ def _item_infos(
         | {m.item_id for r in results for e in r.exits for m in e.materials}
     )
     with _connect(state) as conn:
-        details = store.load_item_details(conn, item_ids)
+        return _item_details(conn, base, item_ids)
+
+
+def _item_details(
+    conn: sqlite3.Connection, base: engine.Market, item_ids: Iterable[int]
+) -> dict[int, ItemInfo]:
+    details = store.load_item_details(conn, item_ids)
     return {
         i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
         for i, d in details.items()
@@ -518,6 +538,43 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
         tree=_node_out(r.tree),
         sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
     )
+
+
+def _no_ah(conn: sqlite3.Connection) -> frozenset[int]:
+    return frozenset(i for i, _ in store.load_ah_blocked(conn))
+
+
+def _ah_blocked(state: AppState, conn: sqlite3.Connection) -> AhBlocked:
+    blocked = store.load_ah_blocked(conn)
+    return AhBlocked(
+        items=[AhBlockedItem(item_id=i, added_at=added) for i, added in blocked],
+        details=_item_details(conn, state.cache.get(), (i for i, _ in blocked)),
+    )
+
+
+@router.get("/ah-blocked")
+def get_ah_blocked(request: Request) -> AhBlocked:
+    state = _state(request)
+    with _connect(state) as conn:
+        return _ah_blocked(state, conn)
+
+
+@router.put("/ah-blocked/{item_id}")
+def block_ah(request: Request, item_id: int) -> AhBlocked:
+    """Never sell `item_id` on the AH: /api/rank and /api/evaluate only vendor or disenchant it."""
+    state = _state(request)
+    with _connect(state) as conn:
+        store.set_ah_blocked(conn, item_id, True)
+        return _ah_blocked(state, conn)
+
+
+@router.delete("/ah-blocked/{item_id}")
+def unblock_ah(request: Request, item_id: int) -> AhBlocked:
+    """Allow selling `item_id` on the AH again."""
+    state = _state(request)
+    with _connect(state) as conn:
+        store.set_ah_blocked(conn, item_id, False)
+        return _ah_blocked(state, conn)
 
 
 @router.post("/game-data/update")

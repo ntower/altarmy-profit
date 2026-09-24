@@ -77,6 +77,24 @@ def test_evaluate_applies_choices(
     assert service.evaluate(base, chars("Frell"), False, ALL_EXITS, 100, {}) is None
 
 
+def test_search_and_evaluate_never_sell_blocked_items_on_the_ah(
+    db2_paths: dict[str, Path], conn: sqlite3.Connection
+) -> None:
+    ingest.build_db(db2_paths, conn)
+    prices.set_price(conn, 1, 20)
+    prices.set_price(conn, 2, 100)
+    prices.set_price(conn, 3, 1000)  # the robe: 950 on the AH beats 500 at a vendor
+    conn.commit()
+    base = store.load_market(conn)
+    (r,) = service.search(base, chars("Tailor Guy"), False, Filters())
+    assert r.best_exit == "ah"
+    (r,) = service.search(base, chars("Tailor Guy"), False, Filters(), no_ah=frozenset({3}))
+    assert (r.best_exit, [e.kind for e in r.exits]) == ("vendor", ["vendor"])
+    got = service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 100, {}, no_ah=frozenset({3}))
+    assert got is not None
+    assert got.best_exit == "vendor"
+
+
 def test_search_without_min_profit_keeps_losses(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
     ingest.build_db(db2_paths, conn)
     prices.set_price(conn, 1, 100)  # 10 linen cost more than the robe sells for

@@ -59,14 +59,15 @@ def search(
     include_unlearned: bool,
     filters: Filters,
     exits: frozenset[str] = ALL_EXITS,
+    no_ah: frozenset[int] = frozenset(),
 ) -> list[Result]:
-    """Rank what the characters can craft, selling only via `exits`, and keep what `filters` accepts.
-    Chains sub-craft through any of their recipes too.
+    """Rank what the characters can craft, selling only via `exits` (never items in `no_ah` on the AH),
+    and keep what `filters` accepts. Chains sub-craft through any of their recipes too.
 
     `include_unlearned` widens that to every recipe of the characters' professions. Disenchanting needs
     an enchanter among them, plus postage unless one of the recipe's crafters enchants.
     """
-    market = _market(base, chars, include_unlearned, exits)
+    market = _market(base, chars, include_unlearned, exits, no_ah)
     min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
     return [r for r in market.rank(min_profit=min_profit) if filters.accepts(r)]
 
@@ -78,16 +79,21 @@ def evaluate(
     exits: frozenset[str],
     recipe_id: int,
     choices: Choices,
+    no_ah: frozenset[int] = frozenset(),
 ) -> Result | None:
     """One recipe as `search` would rank it, but with the user's `choices` of sources and exit; None if
     the characters can't make or sell it."""
-    market = _market(base, chars, include_unlearned, exits)
+    market = _market(base, chars, include_unlearned, exits, no_ah)
     recipe = next((r for r in market.recipes if r.id == recipe_id), None)
     return None if recipe is None else market.evaluate(recipe, choices)
 
 
 def _market(
-    base: Market, chars: Sequence[Character], include_unlearned: bool, exits: frozenset[str]
+    base: Market,
+    chars: Sequence[Character],
+    include_unlearned: bool,
+    exits: frozenset[str],
+    no_ah: frozenset[int],
 ) -> Market:
     """`base` narrowed to what the characters can craft (see `search`), with them as the crafters."""
     known = frozenset().union(*(c.known_recipes for c in chars))
@@ -104,6 +110,7 @@ def _market(
         crafters=crafters,
         include_unlearned=include_unlearned,
         exits=exits,
+        no_ah=no_ah,
     )
 
 

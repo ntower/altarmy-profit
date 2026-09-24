@@ -60,14 +60,24 @@ export function iconUrl(icon: string, size: 'small' | 'medium' | 'large'): strin
   return `https://wow.zamimg.com/images/wow/icons/${size}/${icon}.jpg`
 }
 
-/** Copper split into the coins a tooltip shows; zero denominations are dropped (0 shows as 0 copper). */
+/** Copper split into the coins to show, from the largest non-zero one down to copper, zeros included so amounts
+ * line up (0 shows as 0 copper). Copper is left out from 100 gold, silver too from 10000 gold. */
 export function splitMoney(copper: number): { unit: 'gold' | 'silver' | 'copper'; amount: number }[] {
+  const gold = Math.floor(copper / 10000)
+  const silver = Math.floor(copper / 100) % 100
+  if (gold >= 10000) return [{ unit: 'gold', amount: gold }]
+  if (gold >= 100)
+    return [
+      { unit: 'gold', amount: gold },
+      { unit: 'silver', amount: silver },
+    ]
   const parts = [
-    { unit: 'gold' as const, amount: Math.floor(copper / 10000) },
-    { unit: 'silver' as const, amount: Math.floor(copper / 100) % 100 },
+    { unit: 'gold' as const, amount: gold },
+    { unit: 'silver' as const, amount: silver },
     { unit: 'copper' as const, amount: copper % 100 },
-  ].filter((p) => p.amount > 0)
-  return parts.length ? parts : [{ unit: 'copper', amount: 0 }]
+  ]
+  const first = parts.findIndex((p) => p.amount > 0)
+  return first < 0 ? [{ unit: 'copper', amount: 0 }] : parts.slice(first)
 }
 
 /** The slot line: left "Chest", right "Cloth". Undefined for items that are not equipment or bags. */

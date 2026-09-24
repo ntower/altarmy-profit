@@ -1,0 +1,30 @@
+.coins {
+  white-space: nowrap;
+}
+
+.coins[data-cost] {
+  color: var(--mantine-color-red-text);
+}
+
+.coin::after {
+  content: '';
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 2px;
+  vertical-align: -0.05em;
+  border-radius: 50%;
+  box-shadow: inset -1px -1px 1px rgba(0, 0, 0, 0.45);
+}
+
+.coin[data-unit='gold']::after {
+  background: radial-gradient(circle at 35% 35%, #fff4a8, #e0b020 55%, #8a6508);
+}
+
+.coin[data-unit='silver']::after {
+  background: radial-gradient(circle at 35% 35%, #ffffff, #b8b8c0 55%, #6a6a72);
+}
+
+.coin[data-unit='copper']::after {
+  background: radial-gradient(circle at 35% 35%, #ffc9a0, #c0703a 55%, #6e3810);
+}

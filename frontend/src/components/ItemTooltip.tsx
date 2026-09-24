@@ -1,8 +1,9 @@
-import { Fragment, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { HoverCard } from '@mantine/core'
 import type { ItemInfo, ItemMap, RankResult } from '../api/client'
-import { QUALITY_COLORS, bindingText, iconUrl, slotLine, speedText, splitMoney } from '../lib/wow'
+import { QUALITY_COLORS, bindingText, iconUrl, slotLine, speedText } from '../lib/wow'
 import classes from './ItemTooltip.module.css'
+import { Money } from './Money'
 
 const qualityColor = (quality: number) => QUALITY_COLORS[quality] ?? QUALITY_COLORS[1]
 
@@ -11,21 +12,6 @@ function Icon({ icon, size, className }: { icon: string | null; size: 'small' | 
   const [failed, setFailed] = useState(false)
   if (!icon || failed) return null
   return <img className={className} src={iconUrl(icon, size)} alt="" onError={() => setFailed(true)} />
-}
-
-function Coins({ copper }: { copper: number }) {
-  return (
-    <span className={classes.coins}>
-      {splitMoney(copper).map(({ unit, amount }, i) => (
-        <Fragment key={unit}>
-          {i > 0 && ' '}
-          <span className={classes.coin} data-unit={unit} title={unit}>
-            {amount}
-          </span>
-        </Fragment>
-      ))}
-    </span>
-  )
 }
 
 /** The item's tooltip lines in in-game order (stats, armor and damage are not in the data yet). */
@@ -55,17 +41,17 @@ function ItemLines({ item }: { item: ItemInfo }) {
       {item.description && <div className={classes.flavor}>"{item.description}"</div>}
       {item.sell_price > 0 && (
         <div>
-          Sell Price: <Coins copper={item.sell_price} />
+          Sell Price: <Money copper={item.sell_price} />
         </div>
       )}
       {item.ah_price != null && (
         <div>
-          Auction: <Coins copper={item.ah_price} />
+          Auction: <Money copper={item.ah_price} />
         </div>
       )}
       {item.vendor_price != null && (
         <div>
-          Vendor: <Coins copper={item.vendor_price} />
+          Vendor: <Money copper={item.vendor_price} />
         </div>
       )}
     </>
@@ -152,12 +138,12 @@ export function DisenchantTooltip({
               <span style={{ color: qualityColor(item?.quality ?? 1) }}>{m.name}</span> {countRange(m)} (
               {Math.round(m.chance * 100)}%)
             </span>
-            {m.value == null ? <span className={classes.dim}>no price</span> : <Coins copper={m.value} />}
+            {m.value == null ? <span className={classes.dim}>no price</span> : <Money copper={m.value} />}
           </div>
         )
       })}
       <div className={classes.section}>
-        Expected: <Coins copper={value} />
+        Expected: <Money copper={value} />
       </div>
     </TooltipFrame>
   )
@@ -217,19 +203,25 @@ export function Hover({
 
 /** An item name in its quality colour with a small icon; hover for the tooltip. `name` is the fallback
  * when the item has no details (e.g. a database from before tooltips were ingested). With `truncate`, a
- * name too long for its (flex) container ends in an ellipsis instead of overflowing. */
+ * name too long for its (flex) container ends in an ellipsis instead of overflowing. `tooltip` replaces the
+ * item's own tooltip (e.g. a recipe's). */
 export function ItemLink({
   item,
   name,
   truncate = false,
+  tooltip,
 }: {
   item: ItemInfo | undefined
   name?: string
   truncate?: boolean
+  tooltip?: ReactNode
 }) {
-  if (!item) return truncate ? <span className={classes.plainName}>{name}</span> : <>{name}</>
+  if (!item) {
+    const plain = truncate ? <span className={classes.plainName}>{name}</span> : <>{name}</>
+    return tooltip ? <Hover tooltip={tooltip}>{plain}</Hover> : plain
+  }
   return (
-    <Hover tooltip={<ItemTooltip item={item} />} truncate={truncate}>
+    <Hover tooltip={tooltip ?? <ItemTooltip item={item} />} truncate={truncate}>
       <span className={classes.link} data-quality={item.quality} data-truncate={truncate || undefined}>
         <Icon icon={item.icon} size="small" className={classes.smallIcon} />
         <span className={classes.name}>{item.name}</span>

@@ -237,10 +237,12 @@ class Market:
         crafters: Sequence[Crafter] = (),
         include_unlearned: bool = False,
         exits: frozenset[str] = ALL_EXITS,
+        no_ah: frozenset[int] = frozenset(),
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
-        profession craft it when nobody has learned it. Crafts are only sold via `exits`."""
+        profession craft it when nobody has learned it. Crafts are only sold via `exits`, and items in
+        `no_ah` never on the AH (they may still be bought there)."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
@@ -249,6 +251,7 @@ class Market:
         self.crafters = crafters
         self.include_unlearned = include_unlearned
         self.exits = exits
+        self.no_ah = no_ah
         self._by_output: dict[int, list[Recipe]] = {}
         for r in recipes:
             self._by_output.setdefault(r.output_item_id, []).append(r)
@@ -303,7 +306,7 @@ class Market:
         out: list[Exit] = []
         if item.sell_price > 0:
             out.append(Exit("vendor", item.sell_price))
-        if item_id in self.prices:
+        if item_id in self.prices and item_id not in self.no_ah:
             out.append(Exit("ah", ah_net(self.prices[item_id], self.ah_cut)))
         de = self.disenchant_value(item)
         if de:

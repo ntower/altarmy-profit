@@ -74,7 +74,9 @@ def cmd_rank(args: argparse.Namespace) -> None:
         results = market.rank(min_profit=args.min_profit, skill_name=args.skill)
     else:
         print(f"{sel.realm} ({sel.faction}). Characters: {', '.join(c.name for c in chars)}")
-        results = service.search(market, chars, args.include_unlearned, Filters(min_profit=args.min_profit))
+        no_ah = frozenset(i for i, _ in store.load_ah_blocked(conn))
+        filters = Filters(min_profit=args.min_profit)
+        results = service.search(market, chars, args.include_unlearned, filters, no_ah=no_ah)
         if args.skill:
             results = [r for r in results if r.recipe.skill_name.lower() == args.skill.lower()]
     results = results[: args.top]

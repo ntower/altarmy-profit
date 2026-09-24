@@ -3,7 +3,7 @@ import { makeItem, robe } from '../test/items'
 import { bindingText, iconUrl, slotLine, speedText, splitMoney } from './wow'
 
 describe('wow helpers', () => {
-  it('splits copper into non-zero coins', () => {
+  it('splits copper into coins from the largest non-zero one down', () => {
     expect(splitMoney(21605)).toEqual([
       { unit: 'gold', amount: 2 },
       { unit: 'silver', amount: 16 },
@@ -11,9 +11,32 @@ describe('wow helpers', () => {
     ])
     expect(splitMoney(10004)).toEqual([
       { unit: 'gold', amount: 1 },
+      { unit: 'silver', amount: 0 },
       { unit: 'copper', amount: 4 },
     ])
+    expect(splitMoney(500)).toEqual([
+      { unit: 'silver', amount: 5 },
+      { unit: 'copper', amount: 0 },
+    ])
+    expect(splitMoney(30)).toEqual([{ unit: 'copper', amount: 30 }])
     expect(splitMoney(0)).toEqual([{ unit: 'copper', amount: 0 }])
+  })
+
+  it('leaves out copper from 100 gold and silver from 10000 gold', () => {
+    expect(splitMoney(999999)).toEqual([
+      { unit: 'gold', amount: 99 },
+      { unit: 'silver', amount: 99 },
+      { unit: 'copper', amount: 99 },
+    ])
+    expect(splitMoney(1234567)).toEqual([
+      { unit: 'gold', amount: 123 },
+      { unit: 'silver', amount: 45 },
+    ])
+    expect(splitMoney(1000099)).toEqual([
+      { unit: 'gold', amount: 100 },
+      { unit: 'silver', amount: 0 },
+    ])
+    expect(splitMoney(123456789)).toEqual([{ unit: 'gold', amount: 12345 }])
   })
 
   it('builds icon urls', () => {
