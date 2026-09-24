@@ -84,6 +84,21 @@ class StepOut(BaseModel):
     who: str  # the character doing it; "" if no characters are known
 
 
+class OptionOut(BaseModel):
+    """One way to get a node's items; POST it back as a choice by `key`."""
+
+    key: str  # vendor | ah | craft:<recipe id>
+    cost: int  # copper for the node's quantity this way, with postage
+    source: str  # vendor | ah if bought
+    via: str  # recipe name if crafted
+    crafter: str  # who crafts it (the cheapest character for that recipe)
+
+
+class SellOptionOut(BaseModel):
+    kind: str  # vendor | ah | disenchant
+    profit: int  # the best profit selling this way
+
+
 class NodeOut(BaseModel):
     """One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs, possibly by
     another character who then mails it on."""
@@ -99,6 +114,8 @@ class NodeOut(BaseModel):
     crafter: str  # who buys or crafts it
     mail_to: str  # who it is mailed to (the parent's crafter); "" if not mailed
     postage: int  # copper for that mail
+    options: list[OptionOut]  # every way to get these items, cheapest first; empty for the recipe's craft
+    option: str  # the key of the option taken; "" for the recipe's craft
     inputs: list[NodeOut]
 
 
@@ -115,6 +132,8 @@ def _node_out(n: engine.Node) -> NodeOut:
         crafter=n.crafter,
         mail_to=n.mail_to,
         postage=n.postage,
+        options=[OptionOut(**asdict(o)) for o in n.options],
+        option=n.option,
         inputs=[_node_out(i) for i in n.inputs],
     )
 
@@ -166,6 +185,7 @@ class RankResult(BaseModel):
     reagents: list[ItemCount]
     steps: list[StepOut]  # buy reagents, craft (intermediates first), mail, sell
     tree: NodeOut  # the recipe's craft, with reagents as inputs
+    sell_options: list[SellOptionOut]  # each exit's best profit, best first
 
 
 class RankResponse(BaseModel):
@@ -173,6 +193,21 @@ class RankResponse(BaseModel):
     total: int  # how many recipes matched the filters
     items: dict[int, ItemInfo]  # every item the results mention, for tooltips
     classes: dict[str, str]  # selected character name -> class file (e.g. PALADIN), for class colours
+
+
+class EvaluateRequest(BaseModel):
+    """Re-cost one recipe with some of its sources or its exit picked by the user."""
+
+    recipe_id: int
+    include_unlearned: bool = False
+    exits: list[ExitKind] = list(ALL_EXIT_KINDS)
+    # tree path ("r.0", "r.0.1"; "sell" for the exit) -> option key (or exit kind); unknown keys are ignored
+    choices: dict[str, str]
+
+
+class EvaluateResponse(BaseModel):
+    result: RankResult
+    items: dict[int, ItemInfo]  # every item the result mentions, for tooltips
 
 
 class UpdateResult(BaseModel):
@@ -396,6 +431,35 @@ def get_rank(
     matches = service.search(base, chars, include_unlearned, filters, frozenset(exits))
     results = matches[:top]
     crafters = altarmy.crafters(chars)
+    return RankResponse(
+        total=len(matches),
+        classes={c.name: c.class_file for c in chars},
+        items=_item_infos(state, base, results),
+        results=[_result_out(r, base, crafters) for r in results],
+    )
+
+
+@router.post("/evaluate")
+def evaluate(request: Request, body: EvaluateRequest) -> EvaluateResponse:
+    """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
+    state = _state(request)
+    base = state.cache.get()
+    with _connect(state) as conn:
+        _, chars = service.selected_characters(conn)
+    r = service.evaluate(
+        base, chars, body.include_unlearned, frozenset(body.exits), body.recipe_id, body.choices
+    )
+    if r is None:
+        raise HTTPException(404, "These characters can't craft and sell that recipe.")
+    return EvaluateResponse(
+        result=_result_out(r, base, altarmy.crafters(chars)), items=_item_infos(state, base, [r])
+    )
+
+
+def _item_infos(
+    state: AppState, base: engine.Market, results: Sequence[engine.Result]
+) -> dict[int, ItemInfo]:
+    """Tooltip details for every item the results mention."""
     item_ids = (
         {s.item_id for r in results for s in r.steps}
         | {i for r in results for i, _ in r.recipe.reagents}
@@ -403,59 +467,56 @@ def get_rank(
     )
     with _connect(state) as conn:
         details = store.load_item_details(conn, item_ids)
-    return RankResponse(
-        total=len(matches),
-        classes={c.name: c.class_file for c in chars},
-        items={
-            i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
-            for i, d in details.items()
-        },
-        results=[
-            RankResult(
-                recipe_id=r.recipe.id,
-                recipe=r.recipe.name,
-                profession=r.recipe.skill_name,
-                crafters=crafters.get(r.recipe.spell_id, []),
-                crafter=r.crafter,
-                output_item_id=r.recipe.output_item_id,
-                output_name=base.items[r.recipe.output_item_id].name
-                if r.recipe.output_item_id in base.items
-                else "?",
-                output_count=r.recipe.output_count,
-                cost=r.cost,
-                revenue=r.revenue,
-                profit=r.profit,
-                roi=r.roi,
-                best_exit=r.best_exit,
-                postage=r.postage,
-                mail_to=r.mail_to,
-                exits=[
-                    ExitOut(
-                        kind=e.kind,
-                        value=e.value,
-                        materials=[MaterialOut(**asdict(m)) for m in e.materials],
-                        postage=e.postage,
-                        mail_to=e.mail_to,
-                    )
-                    for e in r.exits
-                ],
-                reagents=[ItemCount(item_id=i, count=c) for i, c in r.recipe.reagents],
-                steps=[
-                    StepOut(
-                        action=cast(Literal["buy", "craft", "mail", "sell"], s.action),
-                        item_id=s.item_id,
-                        name=s.name,
-                        quantity=s.quantity,
-                        value=s.value,
-                        via=s.via,
-                        who=s.who,
-                    )
-                    for s in r.steps
-                ],
-                tree=_node_out(r.tree),
+    return {
+        i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
+        for i, d in details.items()
+    }
+
+
+def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[str]]) -> RankResult:
+    return RankResult(
+        recipe_id=r.recipe.id,
+        recipe=r.recipe.name,
+        profession=r.recipe.skill_name,
+        crafters=crafters.get(r.recipe.spell_id, []),
+        crafter=r.crafter,
+        output_item_id=r.recipe.output_item_id,
+        output_name=base.items[r.recipe.output_item_id].name
+        if r.recipe.output_item_id in base.items
+        else "?",
+        output_count=r.recipe.output_count,
+        cost=r.cost,
+        revenue=r.revenue,
+        profit=r.profit,
+        roi=r.roi,
+        best_exit=r.best_exit,
+        postage=r.postage,
+        mail_to=r.mail_to,
+        exits=[
+            ExitOut(
+                kind=e.kind,
+                value=e.value,
+                materials=[MaterialOut(**asdict(m)) for m in e.materials],
+                postage=e.postage,
+                mail_to=e.mail_to,
             )
-            for r in results
+            for e in r.exits
         ],
+        reagents=[ItemCount(item_id=i, count=c) for i, c in r.recipe.reagents],
+        steps=[
+            StepOut(
+                action=cast(Literal["buy", "craft", "mail", "sell"], s.action),
+                item_id=s.item_id,
+                name=s.name,
+                quantity=s.quantity,
+                value=s.value,
+                via=s.via,
+                who=s.who,
+            )
+            for s in r.steps
+        ],
+        tree=_node_out(r.tree),
+        sell_options=[SellOptionOut(**asdict(o)) for o in r.sell_options],
     )
 
 

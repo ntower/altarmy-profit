@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { notifications } from '@mantine/notifications'
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { call, client, type Selection, type Sources, type Status, type UpdateResult } from './client'
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { call, client, type Evaluation, type Selection, type Sources, type Status, type UpdateResult } from './client'
+import type { Choices } from '../lib/choices'
 import { importedSince, readSyncSeen, syncSeen, writeSyncSeen } from '../lib/syncNotice'
 
 /**
@@ -18,7 +19,7 @@ export function useStatus() {
 }
 
 /** Bumped by the server whenever a sync re-imported something; part of the keys of data it affects. */
-function useDataVersion() {
+export function useDataVersion() {
   return useStatus().data?.data_version
 }
 
@@ -74,6 +75,39 @@ export function useRank(params: RankParams) {
       ),
     enabled: version !== undefined,
     placeholderData: keepPreviousData,
+  })
+}
+
+/** What `/api/evaluate` needs besides the choices: the search's settings, and the data version its results
+ * came from (so a sync re-costs the user's changed plans too). */
+export type EvaluateParams = Pick<RankParams, 'includeUnlearned' | 'exits'> & { version?: number }
+
+export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
+
+/** Each recipe re-costed with the user's choices, by recipe id. While a new choice loads, the recipe's
+ * previous evaluation stays in `data`. */
+export function useEvaluations(
+  choices: Readonly<Record<number, Choices>>,
+  { includeUnlearned, exits, version }: EvaluateParams,
+): Readonly<Record<number, EvaluationState>> {
+  const ids = Object.keys(choices).map(Number)
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['evaluate', version, id, includeUnlearned, exits, choices[id]],
+      queryFn: () =>
+        call(
+          client.POST('/api/evaluate', {
+            body: { recipe_id: id, include_unlearned: includeUnlearned, exits, choices: choices[id] ?? {} },
+          }),
+        ),
+      // Observers are matched by position, so only keep data that belongs to the same recipe.
+      placeholderData: (previous: Evaluation | undefined, query?: { queryKey: readonly unknown[] }) =>
+        query?.queryKey[2] === id ? previous : undefined,
+    })),
+    combine: (results) =>
+      Object.fromEntries(
+        results.map(({ data, isFetching, error }, i) => [ids[i], { data, isFetching, error }]),
+      ),
   })
 }
 

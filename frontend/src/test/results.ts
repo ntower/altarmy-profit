@@ -1,6 +1,14 @@
 import type { FlowNode, RankResult } from '../api/client'
 
-export const bought = (item_id: number, name: string, quantity: number, cost: number, source = 'ah'): FlowNode => ({
+/** A bought reagent; with no `options`, buying it `source` is its only option. */
+export const bought = (
+  item_id: number,
+  name: string,
+  quantity: number,
+  cost: number,
+  source = 'ah',
+  options: FlowNode['options'] = [{ key: source, cost, source, via: '', crafter: '' }],
+): FlowNode => ({
   item_id,
   name,
   quantity,
@@ -12,10 +20,13 @@ export const bought = (item_id: number, name: string, quantity: number, cost: nu
   crafter: '',
   mail_to: '',
   postage: 0,
+  options,
+  option: source,
   inputs: [],
 })
 
-/** Green Robe: 10 linen (AH) + 1 thread (vendor), sold to a vendor for 200 profit. */
+/** Green Robe: 10 linen (AH) + 1 thread (vendor, or 1s 50c on the AH), sold to a vendor for 200 profit
+ * (or 175 on the AH). */
 export const robeResult: RankResult = {
   recipe_id: 100,
   recipe: 'Green Robe',
@@ -58,6 +69,18 @@ export const robeResult: RankResult = {
     crafter: '',
     mail_to: '',
     postage: 0,
-    inputs: [bought(1, 'Linen Cloth', 10, 200), bought(2, 'Coarse Thread', 1, 100, 'vendor')],
+    options: [],
+    option: '',
+    inputs: [
+      bought(1, 'Linen Cloth', 10, 200),
+      bought(2, 'Coarse Thread', 1, 100, 'vendor', [
+        { key: 'vendor', cost: 100, source: 'vendor', via: '', crafter: '' },
+        { key: 'ah', cost: 150, source: 'ah', via: '', crafter: '' },
+      ]),
+    ],
   },
+  sell_options: [
+    { kind: 'vendor', profit: 200 },
+    { kind: 'ah', profit: 175 },
+  ],
 }

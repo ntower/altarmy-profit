@@ -3,6 +3,8 @@ import type { components, paths } from './schema'
 
 export type Status = components['schemas']['Status']
 export type RankResult = components['schemas']['RankResult']
+/** One recipe re-costed with the user's choices, and tooltip details for the items it now uses. */
+export type Evaluation = components['schemas']['EvaluateResponse']
 export type ItemInfo = components['schemas']['ItemInfo']
 /** One item in a recipe's reagent tree: bought (no inputs) or crafted from its inputs. */
 export type FlowNode = components['schemas']['NodeOut']

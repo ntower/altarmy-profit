@@ -7,7 +7,7 @@ import pytest
 
 from wowprofit import altarmy, db, ingest, prices, service, store
 from wowprofit.altarmy import Character, Profession
-from wowprofit.engine import Filters
+from wowprofit.engine import ALL_EXITS, Filters
 from wowprofit.service import Selection, SyncResult
 
 from .conftest import SV_DIR
@@ -57,6 +57,24 @@ def test_search_ranks_known_recipes_or_whole_professions(
     assert service.search(base, [novice], False, profitable) == []
     unlearned = service.search(base, [novice], True, profitable)
     assert [r.recipe.name for r in unlearned] == ["Green Robe"]
+
+
+def test_evaluate_applies_choices(
+    db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
+) -> None:
+    ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)
+    prices.set_price(conn, 1, 20)
+    prices.set_price(conn, 2, 100)  # vendors sell thread for 11c
+    conn.commit()
+    base = store.load_market(conn)
+    best = service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 100, {})
+    assert best is not None
+    assert (best.cost, best.tree.inputs[1].source) == (211, "vendor")
+    chosen = service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 100, {"r.1": "ah"})
+    assert chosen is not None
+    assert (chosen.cost, chosen.tree.inputs[1].source) == (300, "ah")
+    assert service.evaluate(base, chars("Tailor Guy"), False, ALL_EXITS, 999, {}) is None
+    assert service.evaluate(base, chars("Frell"), False, ALL_EXITS, 100, {}) is None
 
 
 def test_search_without_min_profit_keeps_losses(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:

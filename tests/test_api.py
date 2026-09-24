@@ -171,6 +171,31 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: sqlite
     }
 
 
+def test_rank_lists_options_and_evaluate_applies_choices(
+    client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
+) -> None:
+    ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)
+    prices.set_price(conn, 1, 20)
+    prices.set_price(conn, 2, 100)  # vendors sell thread for 11c
+    conn.commit()
+    with_tailor(conn)
+    (r,) = client.get("/api/rank").json()["results"]
+    assert r["tree"]["options"] == []
+    assert r["tree"]["inputs"][1]["options"] == [
+        {"key": "vendor", "cost": 11, "source": "vendor", "via": "", "crafter": ""},
+        {"key": "ah", "cost": 100, "source": "ah", "via": "", "crafter": ""},
+    ]
+    assert r["sell_options"] == [{"kind": "vendor", "profit": 500 - 211}]
+
+    body = {"recipe_id": r["recipe_id"], "choices": {"r.1": "ah"}}
+    got = client.post("/api/evaluate", json=body).json()
+    assert (got["result"]["cost"], got["result"]["tree"]["inputs"][1]["source"]) == (300, "ah")
+    assert set(got["items"]) == {"1", "2", "3"}
+    assert client.post("/api/evaluate", json={"recipe_id": 999, "choices": {}}).status_code == 404
+    only_ah = {**body, "exits": ["ah"]}  # the robe has no AH price
+    assert client.post("/api/evaluate", json=only_ah).status_code == 404
+
+
 def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connection) -> None:
     def total(**params: str | int | float | list[str]) -> int:
         body = client.get("/api/rank", params=params).json()

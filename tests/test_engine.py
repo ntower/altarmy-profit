@@ -10,8 +10,10 @@ from wowprofit.engine import (
     Market,
     Material,
     Node,
+    Option,
     Recipe,
     Result,
+    SellOption,
     Step,
     ah_net,
     recipes_for_characters,
@@ -445,3 +447,66 @@ def test_postage_is_per_stack() -> None:
 def test_no_characters_means_no_postage_in_chains() -> None:
     res = must_evaluate(maul_market(), MAUL_RECIPE)
     assert (res.crafter, res.cost) == ("", 2 * 15 + 10)
+
+
+# --- alternatives the user can switch to ------------------------------------------------------------
+def test_nodes_list_their_options_cheapest_first() -> None:
+    m = make_market({LINEN: 10, THREAD: 5}, thread_vendor_price=3)
+    thread = must_evaluate(m, ROBE).tree.inputs[1]
+    assert thread.options == (Option("vendor", 3, source="vendor"), Option("ah", 5, source="ah"))
+    assert thread.option == "vendor"
+    assert must_evaluate(m, ROBE).tree.options == ()  # the recipe's own craft has none
+
+
+def test_craft_options_name_the_recipe_and_cheapest_crafter() -> None:
+    res = must_evaluate(maul_market(SMITHY, LEATHERY), MAUL_RECIPE)
+    assert res.tree.inputs[0].options == (
+        Option("craft:20", 2 * 15 + MAIL_POSTAGE, via="Light Leather", crafter="Leathery"),
+        Option("ah", 200, source="ah"),
+    )
+
+
+def test_choosing_to_craft_a_bought_reagent_adds_its_chain() -> None:
+    m = maul_market(SMITHY, LEATHERY, leather_price=20)
+    res = m.evaluate(MAUL_RECIPE, {"r.0": "craft:20"})
+    assert res is not None
+    leather = res.tree.inputs[0]
+    assert (leather.via, leather.crafter, leather.mail_to) == ("Light Leather", "Leathery", "Smithy")
+    assert (leather.option, leather.inputs[0].item_id) == ("craft:20", SCRAPS)
+    assert res.cost == 2 * 15 + MAIL_POSTAGE + 10
+    assert [s.action for s in res.steps] == ["buy", "buy", "craft", "mail", "craft", "sell"]
+
+
+def test_choosing_to_buy_a_crafted_reagent_drops_its_chain() -> None:
+    res = maul_market(SMITHY, LEATHERY).evaluate(MAUL_RECIPE, {"r.0": "ah"})
+    assert res is not None
+    assert res.tree.inputs[0] == Node(LEATHER, "Light Leather", 2, 200, source="ah", crafter="Smithy")
+    assert res.cost == 200 + 10
+
+
+def test_choices_below_a_choice_apply() -> None:
+    m = maul_market(SMITHY, LEATHERY, leather_price=20)
+    res = m.evaluate(MAUL_RECIPE, {"r.0": "craft:20", "r.0.0": "nonsense"})
+    assert res is not None
+    assert res.tree.inputs[0].inputs[0].source == "ah"  # an unknown key keeps the cheapest
+
+
+def test_unknown_choices_are_ignored() -> None:
+    m = maul_market(SMITHY, LEATHERY)
+    assert m.evaluate(MAUL_RECIPE, {"r.0": "craft:999", "sell": "ah"}) == m.evaluate(MAUL_RECIPE)
+
+
+def test_sell_options_rank_each_exit_by_its_best_profit() -> None:
+    res = must_evaluate(de_market(TAILOR, crafter("Enc", ("Enchanting", 1))), ROBE)
+    assert res.sell_options == [
+        SellOption("disenchant", 950 - 300 - MAIL_POSTAGE),
+        SellOption("vendor", 500 - 300),
+    ]
+
+
+def test_choosing_an_exit_sells_that_way() -> None:
+    m = de_market(TAILOR, crafter("Enc", ("Enchanting", 1)))
+    res = m.evaluate(ROBE, {"sell": "vendor"})
+    assert res is not None
+    assert (res.best_exit, res.profit, res.mail_to) == ("vendor", 200, "")
+    assert res.sell_options == must_evaluate(m, ROBE).sell_options

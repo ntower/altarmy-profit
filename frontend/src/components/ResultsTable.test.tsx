@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { RankResult } from '../api/client'
 import { linen, robe as robeItem, thread } from '../test/items'
-import { robeResult as robe } from '../test/results'
-import { renderWithProviders } from '../test/utils'
+import { bought, robeResult as robe } from '../test/results'
+import { mockApi, renderWithProviders } from '../test/utils'
 import { ResultsTable } from './ResultsTable'
 
 const items = { '1': linen, '2': thread, '3': robeItem }
@@ -232,6 +232,77 @@ describe('ResultsTable', () => {
       expect(order()).toEqual(['Bolt', 'Cape', 'Axe'])
       await sortBy('Profit')
       expect(order()).toEqual(['Axe', 'Cape', 'Bolt'])
+    })
+  })
+
+  describe('changing the plan', () => {
+    const [linenNode, threadNode] = robe.tree.inputs
+    /** The robe with its thread bought on the AH instead, as the server re-costs it. */
+    const fromAh: RankResult = {
+      ...robe,
+      cost: 350,
+      profit: 150,
+      roi: 150 / 350,
+      steps: robe.steps.map((s) => (s.item_id === 2 ? { ...s, value: -150, via: 'ah' } : s)),
+      tree: {
+        ...robe.tree,
+        cost: 350,
+        inputs: [linenNode!, { ...bought(2, 'Coarse Thread', 1, 150, 'ah', threadNode!.options) }],
+      },
+      sell_options: [
+        { kind: 'vendor', profit: 150 },
+        { kind: 'ah', profit: 125 },
+      ],
+    }
+    async function open() {
+      const fetch = mockApi({ '/api/evaluate': { result: fromAh, items } })
+      renderWithProviders(<ResultsTable results={[robe]} items={items} />)
+      await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+      return fetch
+    }
+
+    it('offers a menu only where there is a choice, best first', async () => {
+      await open()
+      expect(screen.queryByRole('button', { name: 'Change source of Linen Cloth' })).not.toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
+      expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+        '✓Buy from a vendor-0g 01s 00c',
+        'Buy on the AH-0g 01s 50c',
+      ])
+    })
+
+    it('offers the other ways to sell on the sale', async () => {
+      await open()
+      await userEvent.click(screen.getByRole('button', { name: 'Change how it is sold' }))
+      expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual([
+        '✓Sell to a vendorprofit 0g 02s 00c',
+        'Sell on the AHprofit 0g 01s 75c',
+      ])
+    })
+
+    it('re-costs the recipe with the choice, and Reset brings back the best plan', async () => {
+      const fetch = await open()
+      expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
+
+      expect(await screen.findByText('Buy on the AH · -0g 01s 50c')).toBeInTheDocument()
+      const request = fetch.mock.calls[0]![0]
+      expect([request.method, new URL(request.url).pathname]).toEqual(['POST', '/api/evaluate'])
+      expect(await request.json()).toEqual({
+        recipe_id: 100,
+        include_unlearned: false,
+        exits: ['vendor', 'ah', 'disenchant'],
+        choices: { 'r.1': 'ah' },
+      })
+      expect(line('0g 01s 50c')).toBeInTheDocument() // the row's profit follows the changed plan
+      expect(screen.getByLabelText('Changed plan')).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
+      expect(screen.getByText('Buy from a vendor · -0g 01s 00c')).toBeInTheDocument()
+      expect(line('0g 02s 00c')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Changed plan')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()
     })
   })
 })

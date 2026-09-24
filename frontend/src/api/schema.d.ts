@@ -55,6 +55,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/evaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate
+         * @description One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied.
+         */
+        post: operations["evaluate_api_evaluate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/game-data/update": {
         parameters: {
             query?: never;
@@ -211,6 +231,40 @@ export interface components {
             groups: components["schemas"]["GroupOut"][];
             selection: components["schemas"]["SelectionModel"] | null;
         };
+        /**
+         * EvaluateRequest
+         * @description Re-cost one recipe with some of its sources or its exit picked by the user.
+         */
+        EvaluateRequest: {
+            /** Choices */
+            choices: {
+                [key: string]: string;
+            };
+            /**
+             * Exits
+             * @default [
+             *       "vendor",
+             *       "ah",
+             *       "disenchant"
+             *     ]
+             */
+            exits: ("vendor" | "ah" | "disenchant")[];
+            /**
+             * Include Unlearned
+             * @default false
+             */
+            include_unlearned: boolean;
+            /** Recipe Id */
+            recipe_id: number;
+        };
+        /** EvaluateResponse */
+        EvaluateResponse: {
+            /** Items */
+            items: {
+                [key: string]: components["schemas"]["ItemInfo"];
+            };
+            result: components["schemas"]["RankResult"];
+        };
         /** ExitOut */
         ExitOut: {
             /** Kind */
@@ -325,10 +379,30 @@ export interface components {
             mail_to: string;
             /** Name */
             name: string;
+            /** Option */
+            option: string;
+            /** Options */
+            options: components["schemas"]["OptionOut"][];
             /** Postage */
             postage: number;
             /** Quantity */
             quantity: number;
+            /** Source */
+            source: string;
+            /** Via */
+            via: string;
+        };
+        /**
+         * OptionOut
+         * @description One way to get a node's items; POST it back as a choice by `key`.
+         */
+        OptionOut: {
+            /** Cost */
+            cost: number;
+            /** Crafter */
+            crafter: string;
+            /** Key */
+            key: string;
             /** Source */
             source: string;
             /** Via */
@@ -396,6 +470,8 @@ export interface components {
             revenue: number;
             /** Roi */
             roi: number;
+            /** Sell Options */
+            sell_options: components["schemas"]["SellOptionOut"][];
             /** Steps */
             steps: components["schemas"]["StepOut"][];
             tree: components["schemas"]["NodeOut"];
@@ -409,6 +485,13 @@ export interface components {
             faction: string;
             /** Realm */
             realm: string;
+        };
+        /** SellOptionOut */
+        SellOptionOut: {
+            /** Kind */
+            kind: string;
+            /** Profit */
+            profit: number;
         };
         /** SourceFiles */
         SourceFiles: {
@@ -572,6 +655,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Characters"];
+                };
+            };
+        };
+    };
+    evaluate_api_evaluate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvaluateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

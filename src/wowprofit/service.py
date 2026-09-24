@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import altarmy, auctionator, db, ingest, prices, store
 from .altarmy import Character
-from .engine import ALL_EXITS, Crafter, Filters, Market, Result, recipes_for_characters
+from .engine import ALL_EXITS, Choices, Crafter, Filters, Market, Result, recipes_for_characters
 
 
 class MarketCache:
@@ -66,13 +66,37 @@ def search(
     `include_unlearned` widens that to every recipe of the characters' professions. Disenchanting needs
     an enchanter among them, plus postage unless one of the recipe's crafters enchants.
     """
+    market = _market(base, chars, include_unlearned, exits)
+    min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
+    return [r for r in market.rank(min_profit=min_profit) if filters.accepts(r)]
+
+
+def evaluate(
+    base: Market,
+    chars: Sequence[Character],
+    include_unlearned: bool,
+    exits: frozenset[str],
+    recipe_id: int,
+    choices: Choices,
+) -> Result | None:
+    """One recipe as `search` would rank it, but with the user's `choices` of sources and exit; None if
+    the characters can't make or sell it."""
+    market = _market(base, chars, include_unlearned, exits)
+    recipe = next((r for r in market.recipes if r.id == recipe_id), None)
+    return None if recipe is None else market.evaluate(recipe, choices)
+
+
+def _market(
+    base: Market, chars: Sequence[Character], include_unlearned: bool, exits: frozenset[str]
+) -> Market:
+    """`base` narrowed to what the characters can craft (see `search`), with them as the crafters."""
     known = frozenset().union(*(c.known_recipes for c in chars))
     professions = {p.name for c in chars for p in c.professions}
     recipes = recipes_for_characters(base.recipes, known, professions, include_unlearned)
     crafters = [
         Crafter(c.name, tuple((p.name, p.rank) for p in c.professions), c.known_recipes) for c in chars
     ]
-    market = Market(
+    return Market(
         base.items,
         recipes,
         base.prices,
@@ -81,8 +105,6 @@ def search(
         include_unlearned=include_unlearned,
         exits=exits,
     )
-    min_profit = filters.min_profit if filters.min_profit is not None else -(10**18)
-    return [r for r in market.rank(min_profit=min_profit) if filters.accepts(r)]
 
 
 # --- realm/faction selection -----------------------------------------------------------------------

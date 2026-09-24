@@ -59,6 +59,70 @@
         "title": "Characters",
         "type": "object"
       },
+      "EvaluateRequest": {
+        "description": "Re-cost one recipe with some of its sources or its exit picked by the user.",
+        "properties": {
+          "choices": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Choices",
+            "type": "object"
+          },
+          "exits": {
+            "default": [
+              "vendor",
+              "ah",
+              "disenchant"
+            ],
+            "items": {
+              "enum": [
+                "vendor",
+                "ah",
+                "disenchant"
+              ],
+              "type": "string"
+            },
+            "title": "Exits",
+            "type": "array"
+          },
+          "include_unlearned": {
+            "default": false,
+            "title": "Include Unlearned",
+            "type": "boolean"
+          },
+          "recipe_id": {
+            "title": "Recipe Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "recipe_id",
+          "choices"
+        ],
+        "title": "EvaluateRequest",
+        "type": "object"
+      },
+      "EvaluateResponse": {
+        "properties": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ItemInfo"
+            },
+            "title": "Items",
+            "type": "object"
+          },
+          "result": {
+            "$ref": "#/components/schemas/RankResult"
+          }
+        },
+        "required": [
+          "result",
+          "items"
+        ],
+        "title": "EvaluateResponse",
+        "type": "object"
+      },
       "ExitOut": {
         "properties": {
           "kind": {
@@ -372,6 +436,17 @@
             "title": "Name",
             "type": "string"
           },
+          "option": {
+            "title": "Option",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/OptionOut"
+            },
+            "title": "Options",
+            "type": "array"
+          },
           "postage": {
             "title": "Postage",
             "type": "integer"
@@ -401,9 +476,45 @@
           "crafter",
           "mail_to",
           "postage",
+          "options",
+          "option",
           "inputs"
         ],
         "title": "NodeOut",
+        "type": "object"
+      },
+      "OptionOut": {
+        "description": "One way to get a node's items; POST it back as a choice by `key`.",
+        "properties": {
+          "cost": {
+            "title": "Cost",
+            "type": "integer"
+          },
+          "crafter": {
+            "title": "Crafter",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "cost",
+          "source",
+          "via",
+          "crafter"
+        ],
+        "title": "OptionOut",
         "type": "object"
       },
       "ProfessionOut": {
@@ -550,6 +661,13 @@
             "title": "Roi",
             "type": "number"
           },
+          "sell_options": {
+            "items": {
+              "$ref": "#/components/schemas/SellOptionOut"
+            },
+            "title": "Sell Options",
+            "type": "array"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/StepOut"
@@ -580,7 +698,8 @@
           "exits",
           "reagents",
           "steps",
-          "tree"
+          "tree",
+          "sell_options"
         ],
         "title": "RankResult",
         "type": "object"
@@ -602,6 +721,24 @@
           "faction"
         ],
         "title": "SelectionModel",
+        "type": "object"
+      },
+      "SellOptionOut": {
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "profit": {
+            "title": "Profit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "profit"
+        ],
+        "title": "SellOptionOut",
         "type": "object"
       },
       "SourceFiles": {
@@ -989,6 +1126,45 @@
           }
         },
         "summary": "Get Characters"
+      }
+    },
+    "/api/evaluate": {
+      "post": {
+        "description": "One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied.",
+        "operationId": "evaluate_api_evaluate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EvaluateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate"
       }
     },
     "/api/game-data/update": {

@@ -2,6 +2,7 @@
 import dagre from '@dagrejs/dagre'
 import type { Edge, Node } from '@xyflow/react'
 import type { FlowNode, RankResult } from '../api/client'
+import { SELL_PATH } from './choices'
 
 export const NODE_WIDTH = 220
 export const NODE_HEIGHT = 64
@@ -19,9 +20,24 @@ export type ItemNodeData = {
   source: string
   crafter: string
   isLeaf: boolean
+  /** The tree path, which is also the node id: where a choice of source applies. */
+  path: string
+  /** Every way to get these items, cheapest first; `option` is the key of the one taken. */
+  options: FlowNode['options']
+  option: string
+  /** Who ends up holding the items: whoever buys them, or whom the crafter mails them to. */
+  holder: string
 }
 /** `seller`: who sells (or disenchants): the enchanter the output is mailed to, else the crafter. */
-export type SellNodeData = { exit: string; revenue: number; profit: number; quantity: number; seller: string }
+export type SellNodeData = {
+  exit: string
+  revenue: number
+  profit: number
+  quantity: number
+  seller: string
+  /** Each exit's best profit, best first. */
+  options: RankResult['sell_options']
+}
 export type MailNodeData = { to: string; postage: number; quantity: number }
 export type ItemFlowNode = Node<ItemNodeData, 'item'>
 export type SellFlowNode = Node<SellNodeData, 'sell'>
@@ -44,7 +60,8 @@ export function buildFlow({
   profit,
   postage,
   mail_to,
-}: Pick<RankResult, 'tree' | 'best_exit' | 'revenue' | 'profit' | 'postage' | 'mail_to'>): Flow {
+  sell_options,
+}: Pick<RankResult, 'tree' | 'best_exit' | 'revenue' | 'profit' | 'postage' | 'mail_to' | 'sell_options'>): Flow {
   const nodes: Flow['nodes'] = []
   const edges: Edge[] = []
   const edge = (source: string, target: string, quantity: number) =>
@@ -60,7 +77,7 @@ export function buildFlow({
 
   let named = false
   const visit = (node: FlowNode, id: string) => {
-    const { item_id, name, quantity, cost, via, crafts, made, source, crafter, inputs } = node
+    const { item_id, name, quantity, cost, via, crafts, made, source, crafter, inputs, options, option } = node
     if (crafter) named = true
     nodes.push({
       id,
@@ -77,6 +94,10 @@ export function buildFlow({
         source,
         crafter,
         isLeaf: inputs.length === 0,
+        path: id,
+        options,
+        option,
+        holder: node.mail_to || crafter,
       },
     })
     inputs.forEach((input, i) => {
@@ -88,13 +109,20 @@ export function buildFlow({
   }
   visit(tree, 'r')
   nodes.push({
-    id: 'sell',
+    id: SELL_PATH,
     type: 'sell',
     position: { x: 0, y: 0 },
-    data: { exit: best_exit, revenue, profit, quantity: tree.made, seller: mail_to || tree.crafter },
+    data: {
+      exit: best_exit,
+      revenue,
+      profit,
+      quantity: tree.made,
+      seller: mail_to || tree.crafter,
+      options: sell_options,
+    },
   })
-  if (mail_to) mail('r', 'sell', mail_to, postage, tree.made)
-  else edge('r', 'sell', tree.made)
+  if (mail_to) mail('r', SELL_PATH, mail_to, postage, tree.made)
+  else edge('r', SELL_PATH, tree.made)
 
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: 'LR', nodesep: 16, ranksep: 56, marginx: 0, marginy: 0 })

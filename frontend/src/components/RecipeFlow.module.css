@@ -19,14 +19,14 @@
 
 .title {
   display: flex;
-  justify-content: space-between;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
   font-size: var(--mantine-font-size-sm);
   white-space: nowrap;
 }
 
-/* A long item name gives way (ellipsis) so the quantity stays in the box. */
+/* A long item name gives way (ellipsis) so the source menu stays in the box. */
 .name {
   display: flex;
   min-width: 0;
@@ -34,6 +34,17 @@
 
 .quantity {
   flex: none;
+}
+
+/* The alternatives menu sits in the top-right corner. */
+.menu {
+  flex: none;
+  margin-left: auto;
+}
+
+.check {
+  display: inline-block;
+  width: 1em;
 }
 
 .detail {

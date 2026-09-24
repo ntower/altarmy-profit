@@ -1,10 +1,12 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import { List, SegmentedControl, Stack, Table, Text, UnstyledButton } from '@mantine/core'
 import type { ItemMap, RankResult } from '../api/client'
+import { useEvaluations, type EvaluateParams } from '../api/queries'
+import { choose, type Choices } from '../lib/choices'
 import { formatMoney, formatRoi } from '../lib/money'
 import { CharacterClasses, CharacterName } from './CharacterName'
 import { DisenchantHover, Hover, ItemLink, RecipeTooltip } from './ItemTooltip'
-import { RecipeFlow } from './RecipeFlow'
+import { RecipeFlow, type FlowEditing } from './RecipeFlow'
 import classes from './ResultsTable.module.css'
 
 const COLUMNS = ['', 'Profit', 'ROI', 'Recipe', 'Profession', 'Crafter', 'Output', 'Cost', 'Revenue', 'Sell via']
@@ -120,7 +122,7 @@ const byCrafter = (crafters: string[], crafter: string) =>
 
 type View = 'flow' | 'steps'
 
-function Details({ result, items }: { result: RankResult; items: ItemMap }) {
+function Details({ result, items, editing }: { result: RankResult; items: ItemMap; editing: FlowEditing }) {
   const [view, setView] = useState<View>('flow')
   return (
     <Stack gap="xs" py="xs">
@@ -134,20 +136,29 @@ function Details({ result, items }: { result: RankResult; items: ItemMap }) {
           { value: 'steps', label: 'Steps' },
         ]}
       />
-      {view === 'flow' ? <RecipeFlow result={result} items={items} /> : <StepList result={result} items={items} />}
+      {view === 'flow' ? (
+        <RecipeFlow result={result} items={items} editing={editing} />
+      ) : (
+        <StepList result={result} items={items} />
+      )}
     </Stack>
   )
 }
 
+const DEFAULT_PARAMS: EvaluateParams = { includeUnlearned: false, exits: ['vendor', 'ah', 'disenchant'] }
+
 export function ResultsTable({
   results,
-  items,
+  items: rankItems,
   classes: characterClasses = {},
+  params = DEFAULT_PARAMS,
 }: {
   results: RankResult[]
   items: ItemMap
   /** Character name -> class file, for class-coloured names. */
   classes?: Readonly<Record<string, string>>
+  /** The search the results came from: a recipe whose plan the user changes is re-costed the same way. */
+  params?: EvaluateParams
 }) {
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set())
   const toggle = (id: number) =>
@@ -164,7 +175,28 @@ export function ResultsTable({
         ? { column, descending: !prev.descending }
         : { column, descending: NUMERIC_COLUMNS.has(column) },
     )
-  const rows = useMemo(() => sorted(results, sort), [results, sort])
+  // The user's changes to each recipe's plan, by recipe id; a row shows its changed plan once it is costed.
+  const [choices, setChoices] = useState<Readonly<Record<number, Choices>>>({})
+  const evaluations = useEvaluations(choices, params)
+  const current = useMemo(
+    () => results.map((r) => (choices[r.recipe_id] && evaluations[r.recipe_id]?.data?.result) || r),
+    [results, choices, evaluations],
+  )
+  const items = useMemo(
+    () => Object.assign({}, rankItems, ...Object.values(evaluations).map((e) => e.data?.items ?? {})) as ItemMap,
+    [rankItems, evaluations],
+  )
+  const rows = useMemo(() => sorted(current, sort), [current, sort])
+  const editing = (id: number): FlowEditing => {
+    const evaluation = evaluations[id]
+    return {
+      onChoose: (path, key) => setChoices((prev) => ({ ...prev, [id]: choose(prev[id] ?? {}, path, key) })),
+      modified: id in choices,
+      onReset: () => setChoices((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => Number(k) !== id))),
+      pending: evaluation?.isFetching ?? false,
+      error: evaluation?.error?.message ?? null,
+    }
+  }
 
   return (
     <CharacterClasses.Provider value={characterClasses}>
@@ -198,6 +230,7 @@ export function ResultsTable({
           <Table.Tbody>
             {rows.map((r) => {
               const expanded = open.has(r.recipe_id)
+              const modified = r.recipe_id in choices
               return (
                 <Fragment key={r.recipe_id}>
                   <Table.Tr onClick={() => toggle(r.recipe_id)} style={{ cursor: 'pointer' }}>
@@ -212,6 +245,11 @@ export function ResultsTable({
                       >
                         {expanded ? '▾' : '▸'}
                       </UnstyledButton>
+                      {modified && (
+                        <Text span c="yellow" ml={4} title="Your changed plan, not the best one" aria-label="Changed plan">
+                          ●
+                        </Text>
+                      )}
                     </Table.Td>
                     <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace">
                       {formatMoney(r.profit)}
@@ -258,7 +296,7 @@ export function ResultsTable({
                     <Table.Tr className={classes.details}>
                       <Table.Td />
                       <Table.Td colSpan={COLUMNS.length - 1}>
-                        <Details result={r} items={items} />
+                        <Details result={r} items={items} editing={editing(r.recipe_id)} />
                       </Table.Td>
                     </Table.Tr>
                   )}

@@ -45,7 +45,11 @@ The web UI is a React app (`frontend/`) served by a local FastAPI server (`wowpr
 it once with `npm run build` in `frontend/`. It has two tabs:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft, and names who
-  crafts each recipe. A switch adds recipes of their professions they have not learned yet.
+  crafts each recipe. A switch adds recipes of their professions they have not learned yet. Expand a
+  recipe to see its plan as a flow chart or steps. Where a material could come from elsewhere (vendor,
+  AH, or a craft), or the output could be sold another way, the node's ⇄ menu lists the options, best
+  first. Picking one re-costs the recipe, adding or removing buy, craft and mail steps, and the row
+  shows the changed numbers. **Reset** goes back to the best plan.
 - **Manage** downloads the latest game data (the newest `wow_classic_beta` build on wago.tools; prices
   are kept) and shows the addon files in use.
 
