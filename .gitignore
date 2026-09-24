@@ -8,3 +8,4 @@ data/*.db
 .ruff_cache/
 node_modules/
 frontend/dist/
+node_modules

@@ -14,7 +14,17 @@ from . import db
 DEFAULT_BUILD = "1.60.1.69913"
 PRODUCT = "wow_classic_beta"  # WoW: Forever builds on wago.tools
 LATEST_URL = "https://wago.tools/api/builds/latest"
-TABLES = ["Item", "ItemSparse", "SkillLine", "SkillLineAbility", "SpellName", "SpellEffect", "SpellReagents"]
+TABLES = [
+    "Item",
+    "ItemSparse",
+    "ItemSubClass",
+    "ManifestInterfaceData",
+    "SkillLine",
+    "SkillLineAbility",
+    "SpellName",
+    "SpellEffect",
+    "SpellReagents",
+]
 EFFECT_CREATE_ITEM = 24
 MAX_REAGENTS = 8
 
@@ -63,6 +73,37 @@ def _int(v: str | None, default: int = 0) -> int:
         return default
 
 
+def _icon_names(path: Path) -> dict[int, str]:
+    """Icon FileDataID -> icon name as Wowhead's CDN spells it (lowercase, no .blp)."""
+    return {
+        _int(r["ID"]): r["FileName"].lower().removesuffix(".blp")
+        for r in _rows(path)
+        if r["FilePath"].lower().startswith("interface\\icons")
+    }
+
+
+ITEM_INSERT_COLUMNS = (
+    "id",
+    "name",
+    "quality",
+    "item_level",
+    "required_level",
+    "class_id",
+    "subclass_id",
+    "sell_price",
+    "buy_price",
+    "bonding",
+    "inventory_type",
+    "item_delay",
+    "container_slots",
+    "subclass_name",
+    "required_skill",
+    "required_skill_rank",
+    "description",
+    "icon",
+)
+
+
 def build_db(
     paths: dict[str, Path], conn: sqlite3.Connection, disenchant_csv: Path | None = None
 ) -> dict[str, int]:
@@ -71,11 +112,20 @@ def build_db(
     for t in ("items", "recipes", "recipe_reagents", "disenchant"):
         conn.execute(f"DELETE FROM {t}")
 
-    classes = {_int(r["ID"]): (_int(r["ClassID"]), _int(r["SubclassID"])) for r in _rows(paths["Item"])}
+    skill_names = {_int(r["ID"]): r["DisplayName_lang"] for r in _rows(paths["SkillLine"])}
+    subclass_names = {
+        (_int(r["ClassID"]), _int(r["SubClassID"])): r["DisplayName_lang"]
+        for r in _rows(paths["ItemSubClass"])
+    }
+    icons = _icon_names(paths["ManifestInterfaceData"])
+    classes = {
+        _int(r["ID"]): (_int(r["ClassID"]), _int(r["SubclassID"]), _int(r["IconFileDataID"]))
+        for r in _rows(paths["Item"])
+    }
     items = []
     for r in _rows(paths["ItemSparse"]):
         iid = _int(r["ID"])
-        cls, sub = classes.get(iid, (0, 0))
+        cls, sub, icon = classes.get(iid, (0, 0, 0))
         items.append(
             (
                 iid,
@@ -88,11 +138,19 @@ def build_db(
                 _int(r["SellPrice"]),
                 _int(r["BuyPrice"]),
                 _int(r["Bonding"]),
+                _int(r["InventoryType"]),
+                _int(r["ItemDelay"]),
+                _int(r["ContainerSlots"]),
+                subclass_names.get((cls, sub)),
+                skill_names.get(_int(r["RequiredSkill"])),
+                _int(r["RequiredSkillRank"]),
+                r["Description_lang"] or None,
+                icons.get(icon),
             )
         )
-    conn.executemany("INSERT INTO items VALUES (?,?,?,?,?,?,?,?,?,?)", items)
+    placeholders = ", ".join("?" * len(ITEM_INSERT_COLUMNS))
+    conn.executemany(f"INSERT INTO items ({', '.join(ITEM_INSERT_COLUMNS)}) VALUES ({placeholders})", items)
 
-    skill_names = {_int(r["ID"]): r["DisplayName_lang"] for r in _rows(paths["SkillLine"])}
     spell_names = {_int(r["ID"]): r["Name_lang"] for r in _rows(paths["SpellName"])}
 
     # spell -> (output item, count); first CreateItem effect wins

@@ -18,7 +18,16 @@ CREATE TABLE IF NOT EXISTS items (
     subclass_id INTEGER NOT NULL DEFAULT 0,
     sell_price INTEGER NOT NULL DEFAULT 0,   -- vendor buys from you
     buy_price INTEGER NOT NULL DEFAULT 0,    -- vendor price (only relevant if a vendor sells it)
-    bonding INTEGER NOT NULL DEFAULT 0
+    bonding INTEGER NOT NULL DEFAULT 0,      -- 1 on pickup, 2 on equip, 3 on use, 4 quest item
+    -- tooltip-only fields (see ITEM_COLUMNS for databases created before they existed)
+    inventory_type INTEGER NOT NULL DEFAULT 0, -- equip slot: 5 chest, 13 one-hand, 16 back, ...
+    item_delay INTEGER NOT NULL DEFAULT 0,   -- weapon speed, ms
+    container_slots INTEGER NOT NULL DEFAULT 0,
+    subclass_name TEXT,                      -- ItemSubClass display name, e.g. Cloth, Sword
+    required_skill TEXT,                     -- skill line name, e.g. Engineering
+    required_skill_rank INTEGER NOT NULL DEFAULT 0,
+    description TEXT,                        -- flavor text
+    icon TEXT                                -- icon file name, lowercase, without extension
 );
 CREATE INDEX IF NOT EXISTS items_name ON items(name);
 
@@ -74,8 +83,25 @@ def connect(path: Path | str = DEFAULT_DB) -> sqlite3.Connection:
     return conn
 
 
+# Item columns added after the first release: name -> column definition for ALTER TABLE.
+ITEM_COLUMNS = {
+    "inventory_type": "INTEGER NOT NULL DEFAULT 0",
+    "item_delay": "INTEGER NOT NULL DEFAULT 0",
+    "container_slots": "INTEGER NOT NULL DEFAULT 0",
+    "subclass_name": "TEXT",
+    "required_skill": "TEXT",
+    "required_skill_rank": "INTEGER NOT NULL DEFAULT 0",
+    "description": "TEXT",
+    "icon": "TEXT",
+}
+
+
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    have = {r[1] for r in conn.execute("PRAGMA table_info(items)")}
+    for name, definition in ITEM_COLUMNS.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE items ADD COLUMN {name} {definition}")
     conn.commit()
 
 

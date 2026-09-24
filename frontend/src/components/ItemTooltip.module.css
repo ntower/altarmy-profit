@@ -1,0 +1,154 @@
+/* In-game style tooltip: always dark, whatever the page theme. */
+
+.dropdown {
+  padding: 0;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+
+.frame {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.bigIcon {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border: 1px solid #000;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px #5a5a5a;
+}
+
+.tooltip {
+  min-width: 180px;
+  max-width: 320px;
+  padding: 7px 10px 8px;
+  color: #fff;
+  font-family: 'Friz Quadrata TT', 'Friz Quadrata', Verdana, Arial, sans-serif;
+  font-size: 12px;
+  line-height: 1.4;
+  text-shadow: 1px 1px 0 #000;
+  background: linear-gradient(to bottom, rgba(16, 16, 40, 0.94), rgba(4, 4, 20, 0.94));
+  border: 1px solid #b8b8b8;
+  border-radius: 4px;
+  box-shadow:
+    inset 0 0 0 1px #3a3a4a,
+    0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.title {
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.split {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.right {
+  text-align: right;
+}
+
+.flavor {
+  color: #ffd100;
+}
+
+.reagents {
+  color: #fff;
+}
+
+.section {
+  margin-top: 10px;
+}
+
+.coins {
+  white-space: nowrap;
+}
+
+.coin::after {
+  content: '';
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 2px;
+  vertical-align: -0.05em;
+  border-radius: 50%;
+  box-shadow: inset -1px -1px 1px rgba(0, 0, 0, 0.45);
+}
+
+.coin[data-unit='gold']::after {
+  background: radial-gradient(circle at 35% 35%, #fff4a8, #e0b020 55%, #8a6508);
+}
+
+.coin[data-unit='silver']::after {
+  background: radial-gradient(circle at 35% 35%, #ffffff, #b8b8c0 55%, #6a6a72);
+}
+
+.coin[data-unit='copper']::after {
+  background: radial-gradient(circle at 35% 35%, #ffc9a0, #c0703a 55%, #6e3810);
+}
+
+/* Links in the table follow the page theme: in-game colours on dark, darker ones on light. */
+.target {
+  cursor: default;
+}
+
+.link {
+  --q0: #9d9d9d;
+  --q1: var(--mantine-color-text);
+  --q2: #1eff00;
+  --q3: #3a9bff;
+  --q4: #b36bf2;
+  --q5: #ff8000;
+  --q6: #e6cc80;
+  --q7: #00ccff;
+
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: bottom;
+  color: var(--q1);
+}
+
+:global([data-mantine-color-scheme='light']) .link {
+  --q0: #6b6b6b;
+  --q2: #138a00;
+  --q3: #0060c0;
+  --q4: #8a2cc9;
+  --q5: #c96400;
+  --q6: #9a7d2c;
+  --q7: #0089ab;
+}
+
+.link[data-quality='0'] {
+  color: var(--q0);
+}
+.link[data-quality='2'] {
+  color: var(--q2);
+}
+.link[data-quality='3'] {
+  color: var(--q3);
+}
+.link[data-quality='4'] {
+  color: var(--q4);
+}
+.link[data-quality='5'] {
+  color: var(--q5);
+}
+.link[data-quality='6'] {
+  color: var(--q6);
+}
+.link[data-quality='7'] {
+  color: var(--q7);
+}
+
+.smallIcon {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}

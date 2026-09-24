@@ -101,8 +101,157 @@
         "title": "ImportResult",
         "type": "object"
       },
+      "ItemCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "item_id",
+          "count"
+        ],
+        "title": "ItemCount",
+        "type": "object"
+      },
+      "ItemInfo": {
+        "description": "Everything an item tooltip shows.",
+        "properties": {
+          "ah_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ah Price"
+          },
+          "bonding": {
+            "title": "Bonding",
+            "type": "integer"
+          },
+          "class_id": {
+            "title": "Class Id",
+            "type": "integer"
+          },
+          "container_slots": {
+            "title": "Container Slots",
+            "type": "integer"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Icon"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "inventory_type": {
+            "title": "Inventory Type",
+            "type": "integer"
+          },
+          "item_delay": {
+            "title": "Item Delay",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quality": {
+            "title": "Quality",
+            "type": "integer"
+          },
+          "required_level": {
+            "title": "Required Level",
+            "type": "integer"
+          },
+          "required_skill": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Skill"
+          },
+          "required_skill_rank": {
+            "title": "Required Skill Rank",
+            "type": "integer"
+          },
+          "sell_price": {
+            "title": "Sell Price",
+            "type": "integer"
+          },
+          "subclass_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subclass Name"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "quality",
+          "class_id",
+          "subclass_name",
+          "inventory_type",
+          "bonding",
+          "item_delay",
+          "container_slots",
+          "required_level",
+          "required_skill",
+          "required_skill_rank",
+          "description",
+          "sell_price",
+          "icon",
+          "ah_price"
+        ],
+        "title": "ItemInfo",
+        "type": "object"
+      },
       "RankResponse": {
         "properties": {
+          "items": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ItemInfo"
+            },
+            "title": "Items",
+            "type": "object"
+          },
           "results": {
             "items": {
               "$ref": "#/components/schemas/RankResult"
@@ -112,7 +261,8 @@
           }
         },
         "required": [
-          "results"
+          "results",
+          "items"
         ],
         "title": "RankResponse",
         "type": "object"
@@ -122,13 +272,6 @@
           "best_exit": {
             "title": "Best Exit",
             "type": "string"
-          },
-          "chain": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Chain",
-            "type": "array"
           },
           "cost": {
             "title": "Cost",
@@ -161,6 +304,13 @@
             "title": "Profit",
             "type": "integer"
           },
+          "reagents": {
+            "items": {
+              "$ref": "#/components/schemas/ItemCount"
+            },
+            "title": "Reagents",
+            "type": "array"
+          },
           "recipe": {
             "title": "Recipe",
             "type": "string"
@@ -176,6 +326,13 @@
           "roi": {
             "title": "Roi",
             "type": "number"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "title": "Steps",
+            "type": "array"
           }
         },
         "required": [
@@ -191,7 +348,8 @@
           "roi",
           "best_exit",
           "exits",
-          "chain"
+          "reagents",
+          "steps"
         ],
         "title": "RankResult",
         "type": "object"
@@ -274,6 +432,49 @@
           "last_auctionator_import"
         ],
         "title": "Status",
+        "type": "object"
+      },
+      "StepOut": {
+        "properties": {
+          "action": {
+            "enum": [
+              "buy",
+              "craft",
+              "sell"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "item_id",
+          "name",
+          "quantity",
+          "value",
+          "via"
+        ],
+        "title": "StepOut",
         "type": "object"
       },
       "UpdateResult": {

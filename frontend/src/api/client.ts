@@ -3,6 +3,9 @@ import type { components, paths } from './schema'
 
 export type Status = components['schemas']['Status']
 export type RankResult = components['schemas']['RankResult']
+export type ItemInfo = components['schemas']['ItemInfo']
+/** Tooltip details keyed by item id (JSON object keys are strings). */
+export type ItemMap = Readonly<Record<string, ItemInfo>>
 export type ImportRequest = components['schemas']['ImportRequest']
 
 export const client = createClient<paths>({

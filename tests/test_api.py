@@ -45,8 +45,40 @@ def test_rank_selected_profession(client: TestClient, priced: sqlite3.Connection
     assert (r["cost"], r["revenue"], r["profit"]) == (300, 500, 200)
     assert r["roi"] == pytest.approx(2 / 3)
     assert r["best_exit"] == "vendor"
-    assert r["chain"] == []
+    assert [(s["action"], s["name"], s["quantity"], s["value"]) for s in r["steps"]] == [
+        ("buy", "Linen Cloth", 10, -200),
+        ("buy", "Coarse Thread", 1, -100),
+        ("craft", "Green Robe", 1, 0),
+        ("sell", "Green Robe", 1, 500),
+    ]
     assert {"kind": "vendor", "value": 500} in r["exits"]
+
+
+def test_rank_sends_reagents_and_item_details(client: TestClient, priced: sqlite3.Connection) -> None:
+    body = client.get("/api/rank", params={"professions": ["Tailoring"]}).json()
+    (r,) = body["results"]
+    assert r["reagents"] == [{"item_id": 1, "count": 10}, {"item_id": 2, "count": 1}]
+    items = body["items"]
+    assert set(items) == {"1", "2", "3"}  # output and reagents; JSON object keys are strings
+    assert items["1"]["ah_price"] == 20
+    assert items["3"] == {
+        "id": 3,
+        "name": "Green Robe",
+        "quality": 2,
+        "class_id": 4,
+        "subclass_name": "Cloth",
+        "inventory_type": 20,
+        "bonding": 2,
+        "item_delay": 0,
+        "container_slots": 0,
+        "required_level": 12,
+        "required_skill": "Tailoring",
+        "required_skill_rank": 50,
+        "description": "Soft and green.",
+        "sell_price": 500,
+        "icon": "inv_chest_cloth_39",
+        "ah_price": None,
+    }
 
 
 def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connection) -> None:

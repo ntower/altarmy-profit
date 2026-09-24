@@ -182,8 +182,57 @@ export interface components {
             /** Unknown */
             unknown: number;
         };
+        /** ItemCount */
+        ItemCount: {
+            /** Count */
+            count: number;
+            /** Item Id */
+            item_id: number;
+        };
+        /**
+         * ItemInfo
+         * @description Everything an item tooltip shows.
+         */
+        ItemInfo: {
+            /** Ah Price */
+            ah_price: number | null;
+            /** Bonding */
+            bonding: number;
+            /** Class Id */
+            class_id: number;
+            /** Container Slots */
+            container_slots: number;
+            /** Description */
+            description: string | null;
+            /** Icon */
+            icon: string | null;
+            /** Id */
+            id: number;
+            /** Inventory Type */
+            inventory_type: number;
+            /** Item Delay */
+            item_delay: number;
+            /** Name */
+            name: string;
+            /** Quality */
+            quality: number;
+            /** Required Level */
+            required_level: number;
+            /** Required Skill */
+            required_skill: string | null;
+            /** Required Skill Rank */
+            required_skill_rank: number;
+            /** Sell Price */
+            sell_price: number;
+            /** Subclass Name */
+            subclass_name: string | null;
+        };
         /** RankResponse */
         RankResponse: {
+            /** Items */
+            items: {
+                [key: string]: components["schemas"]["ItemInfo"];
+            };
             /** Results */
             results: components["schemas"]["RankResult"][];
         };
@@ -191,8 +240,6 @@ export interface components {
         RankResult: {
             /** Best Exit */
             best_exit: string;
-            /** Chain */
-            chain: string[];
             /** Cost */
             cost: number;
             /** Exits */
@@ -207,6 +254,8 @@ export interface components {
             profession: string;
             /** Profit */
             profit: number;
+            /** Reagents */
+            reagents: components["schemas"]["ItemCount"][];
             /** Recipe */
             recipe: string;
             /** Recipe Id */
@@ -215,6 +264,8 @@ export interface components {
             revenue: number;
             /** Roi */
             roi: number;
+            /** Steps */
+            steps: components["schemas"]["StepOut"][];
         };
         /** Realms */
         Realms: {
@@ -237,6 +288,24 @@ export interface components {
             prices: number;
             /** Recipes */
             recipes: number;
+        };
+        /** StepOut */
+        StepOut: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "buy" | "craft" | "sell";
+            /** Item Id */
+            item_id: number;
+            /** Name */
+            name: string;
+            /** Quantity */
+            quantity: number;
+            /** Value */
+            value: number;
+            /** Via */
+            via: string;
         };
         /** UpdateResult */
         UpdateResult: {

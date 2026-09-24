@@ -35,6 +35,43 @@ def test_build_db_loads_items_and_recipes(db2_paths: dict[str, Path], conn: sqli
     assert reagents == {1: 10, 2: 1}
 
 
+def test_build_db_loads_tooltip_fields(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
+    ingest.build_db(db2_paths, conn)
+    robe = conn.execute("SELECT * FROM items WHERE id = 3").fetchone()
+    assert {k: robe[k] for k in TOOLTIP_COLUMNS} == {
+        "bonding": 2,
+        "required_level": 12,
+        "inventory_type": 20,
+        "item_delay": 0,
+        "container_slots": 0,
+        "subclass_name": "Cloth",
+        "required_skill": "Tailoring",
+        "required_skill_rank": 50,
+        "description": "Soft and green.",
+        "icon": "inv_chest_cloth_39",
+    }
+    icons = dict(conn.execute("SELECT id, icon FROM items WHERE id IN (1, 2)").fetchall())
+    assert icons == {1: "inv_fabric_linen_01", 2: None}  # 2's icon file is not in the manifest
+    linen = conn.execute(
+        "SELECT subclass_name, required_skill, description FROM items WHERE id = 1"
+    ).fetchone()
+    assert tuple(linen) == (None, None, None)
+
+
+TOOLTIP_COLUMNS = {
+    "bonding",
+    "required_level",
+    "inventory_type",
+    "item_delay",
+    "container_slots",
+    "subclass_name",
+    "required_skill",
+    "required_skill_rank",
+    "description",
+    "icon",
+}
+
+
 def test_build_db_preserves_prices(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
     conn.execute("INSERT INTO prices(item_id, price) VALUES (1, 45)")
     ingest.build_db(db2_paths, conn)

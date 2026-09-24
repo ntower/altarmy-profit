@@ -1,4 +1,13 @@
-from wowprofit.engine import DisenchantRow, Item, Market, Recipe, Result, ah_net, recipes_for_professions
+from wowprofit.engine import (
+    DisenchantRow,
+    Item,
+    Market,
+    Recipe,
+    Result,
+    Step,
+    ah_net,
+    recipes_for_professions,
+)
 
 LINEN, THREAD, BOLT, GREEN, DUST = 1, 2, 3, 4, 5
 
@@ -52,6 +61,7 @@ def test_disenchant_expected_value() -> None:
     res = must_evaluate(m, m.recipes[0])
     assert res.best_exit == "disenchant"
     assert res.revenue == int(0.75 * 1.5 * ah_net(1000))
+    assert res.steps[-1] == Step("sell", GREEN, "Green Robe", 1, res.revenue, via="disenchant")
 
 
 def test_disenchant_ignores_wrong_item_level() -> None:
@@ -73,7 +83,33 @@ def test_chain_crafts_cheaper_intermediate() -> None:
     m = make_market({LINEN: 10, THREAD: 5, BOLT: 100}, recipes)
     res = must_evaluate(m, recipes[1])
     assert res.cost == 3 * 20 + 5  # crafting bolts (20) beats buying them (100)
-    assert res.crafted_reagents == ["3x Bolt of Linen via Bolt of Linen"]
+    assert res.steps == [
+        Step("buy", LINEN, "Linen Cloth", 6, -60),
+        Step("buy", THREAD, "Coarse Thread", 1, -5),
+        Step("craft", BOLT, "Bolt of Linen", 3, via="Bolt of Linen"),
+        Step("craft", GREEN, "Green Robe", 1, via="Green Robe"),
+        Step("sell", GREEN, "Green Robe", 1, 500, via="vendor"),
+    ]
+
+
+def test_steps_craft_whole_batches_of_multi_output_reagents() -> None:
+    recipes = [
+        Recipe(11, "Bolts x2", BOLT, 2, ((LINEN, 2),), "Tailoring"),
+        Recipe(12, "Green Robe", GREEN, 1, ((BOLT, 3), (THREAD, 1)), "Tailoring"),
+    ]
+    m = make_market({LINEN: 10, THREAD: 5}, recipes)
+    steps = must_evaluate(m, recipes[1]).steps
+    assert steps[0] == Step("buy", LINEN, "Linen Cloth", 4, -40)  # two crafts of 2 bolts
+    assert steps[2] == Step("craft", BOLT, "Bolt of Linen", 4, via="Bolts x2")
+
+
+def test_steps_merge_repeated_reagents() -> None:
+    recipes = [
+        Recipe(11, "Bolt of Linen", BOLT, 1, ((LINEN, 2),), "Tailoring"),
+        Recipe(12, "Green Robe", GREEN, 1, ((BOLT, 1), (LINEN, 3)), "Tailoring"),
+    ]
+    m = make_market({LINEN: 10}, recipes)
+    assert must_evaluate(m, recipes[1]).steps[0] == Step("buy", LINEN, "Linen Cloth", 5, -50)
 
 
 def test_chain_cycle_terminates() -> None:
@@ -116,9 +152,9 @@ def test_chain_only_subcrafts_through_selected_professions() -> None:
     smith_only = make_market(prices, recipes_for_professions(recipes, ["Blacksmithing"]))
     (res,) = smith_only.rank(min_profit=-(10**9))
     assert res.cost == 3 * 100 + 5  # must buy bolts
-    assert res.crafted_reagents == []
+    assert [s.action for s in res.steps] == ["buy", "buy", "craft", "sell"]
 
     both = make_market(prices, recipes_for_professions(recipes, ["Blacksmithing", "Mining"]))
     res = must_evaluate(both, recipes[1])
     assert res.cost == 3 * 20 + 5
-    assert res.crafted_reagents == ["3x Bolt of Linen via Smelt Bolt"]
+    assert Step("craft", BOLT, "Bolt of Linen", 3, via="Smelt Bolt") in res.steps

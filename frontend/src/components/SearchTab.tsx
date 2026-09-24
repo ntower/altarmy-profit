@@ -14,7 +14,7 @@ function Results({ professions, minGold, top }: { professions: string[]; minGold
   if (!rank.data.results.length) {
     return <Alert>No profitable recipes found for these professions with the current prices.</Alert>
   }
-  return <ResultsTable results={rank.data.results} />
+  return <ResultsTable results={rank.data.results} items={rank.data.items} />
 }
 
 export function SearchTab() {

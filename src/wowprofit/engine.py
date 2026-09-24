@@ -66,6 +66,18 @@ class Exit:
     value: int  # copper per item, after cuts
 
 
+@dataclass(frozen=True)
+class Step:
+    """One instruction in a recipe's shopping/crafting/selling sequence."""
+
+    action: str  # buy | craft | sell
+    item_id: int
+    name: str
+    quantity: int
+    value: int = 0  # copper for the whole step: negative when buying, positive when selling
+    via: str = ""  # craft: recipe name; sell: vendor | ah | disenchant
+
+
 @dataclass
 class Result:
     recipe: Recipe
@@ -73,7 +85,7 @@ class Result:
     revenue: int  # per craft (best exit x output_count)
     best_exit: str
     exits: list[Exit] = field(default_factory=list)
-    crafted_reagents: list[str] = field(default_factory=list)  # sub-crafted reagents in the chain
+    steps: list[Step] = field(default_factory=list)  # buy reagents, craft (sub-crafts first), sell
 
     @property
     def profit(self) -> int:
@@ -143,30 +155,61 @@ class Market:
     # --- buying / chains ---------------------------------------------------------------
     def reagent_cost(
         self, item_id: int, depth: int = 0, seen: frozenset[int] = frozenset()
-    ) -> tuple[int, str] | None:
-        """Cheapest way to obtain one unit: buy it, or craft it from other priced reagents."""
-        options: list[tuple[int, str]] = []
+    ) -> tuple[int, Recipe | None] | None:
+        """Cheapest way to obtain one unit: buy it (recipe None), or craft it from other priced reagents."""
+        options: list[tuple[int, Recipe | None]] = []
         if item_id in self.prices:
-            options.append((self.prices[item_id], "buy"))
+            options.append((self.prices[item_id], None))
         if depth < MAX_CHAIN_DEPTH and item_id not in seen:
             for r in self._by_output.get(item_id, []):
                 got = self._recipe_cost(r, depth + 1, seen | {item_id})
                 if got is not None:
-                    options.append((got[0] // r.output_count, f"craft:{r.name}"))
-        return min(options) if options else None
+                    options.append((got // r.output_count, r))
+        return min(options, key=lambda o: o[0]) if options else None  # ties prefer buying
 
-    def _recipe_cost(self, recipe: Recipe, depth: int, seen: frozenset[int]) -> tuple[int, list[str]] | None:
-        total, crafted = 0, []
+    def _recipe_cost(self, recipe: Recipe, depth: int, seen: frozenset[int]) -> int | None:
+        total = 0
         for item_id, count in recipe.reagents:
             got = self.reagent_cost(item_id, depth, seen)
             if got is None:
                 return None
-            unit, how = got
-            total += unit * count
-            if how.startswith("craft:"):
-                name = self.items[item_id].name if item_id in self.items else str(item_id)
-                crafted.append(f"{count}x {name} via {how[6:]}")
-        return total, crafted
+            total += got[0] * count
+        return total
+
+    def _name(self, item_id: int) -> str:
+        return self.items[item_id].name if item_id in self.items else str(item_id)
+
+    def steps(self, recipe: Recipe, sell_via: str, revenue: int) -> list[Step]:
+        """Instructions for one craft of `recipe`, following the same choices as its cost: buy every
+        bought reagent (merged per item), craft intermediates before what uses them, then sell.
+        Sub-crafts are whole crafts, so a multi-output intermediate may leave spares."""
+        buys: dict[int, int] = {}
+        crafts: dict[int, tuple[Recipe, int]] = {}  # output item -> (recipe, crafts)
+
+        def need(item_id: int, qty: int, depth: int, seen: frozenset[int]) -> None:
+            got = self.reagent_cost(item_id, depth, seen)
+            assert got is not None  # evaluate() already costed the whole tree
+            via = got[1]
+            if via is None:
+                buys[item_id] = buys.get(item_id, 0) + qty
+                return
+            runs = -(-qty // via.output_count)
+            for sub_id, count in via.reagents:
+                need(sub_id, count * runs, depth + 1, seen | {item_id})
+            crafts[item_id] = (via, crafts.get(item_id, (via, 0))[1] + runs)
+
+        for item_id, count in recipe.reagents:
+            need(item_id, count, 0, frozenset())
+        out_id, out = recipe.output_item_id, self._name(recipe.output_item_id)
+        return [
+            *(Step("buy", i, self._name(i), q, -q * self.prices[i]) for i, q in buys.items()),
+            *(
+                Step("craft", i, self._name(i), r.output_count * n, via=r.name)
+                for i, (r, n) in crafts.items()
+            ),
+            Step("craft", out_id, out, recipe.output_count, via=recipe.name),
+            Step("sell", out_id, out, recipe.output_count, revenue, via=sell_via),
+        ]
 
     # --- evaluation --------------------------------------------------------------------
     def evaluate(self, recipe: Recipe) -> Result | None:
@@ -177,7 +220,8 @@ class Market:
         if not exits:
             return None
         best = max(exits, key=lambda e: e.value)
-        return Result(recipe, cost[0], best.value * recipe.output_count, best.kind, exits, cost[1])
+        revenue = best.value * recipe.output_count
+        return Result(recipe, cost, revenue, best.kind, exits, self.steps(recipe, best.kind, revenue))
 
     def rank(self, min_profit: int = 0, skill_name: str | None = None) -> list[Result]:
         results = []

@@ -45,5 +45,6 @@ Use the project venv (`.venv`); do not install packages globally. If it is missi
 - Disenchant results are server-side loot data and are **not** in DB2. Until `data/disenchant.csv` is filled in, disenchant is ignored. Do not invent drop tables.
 - DB2 does not say which vendors sell which reagents; vendor prices are entered as ordinary prices.
 - `recipes.min_skill` currently comes out as 1 for every real recipe, so do not rely on it. Recipe output count comes from `SpellEffect.EffectBasePointsF` and is only spot-checked.
+- Item tooltips (`store.load_item_details`, `/api/rank`'s `items` map) use denormalized `items` columns filled at ingest: subclass names from `ItemSubClass`, icon names from `ManifestInterfaceData` (`Interface\Icons` only; the browser loads them from wow.zamimg.com). Stats, armor and weapon damage are not shown: ItemSparse holds only stat allocations. `db.init_schema` adds missing item columns to older databases; they stay empty until the next game data update.
 - Re-running `wowprofit ingest` rebuilds items, recipes and disenchant rows but preserves the `prices` table.
 - The pinned build is `DEFAULT_BUILD` in `ingest.py`; `ingest.latest_build()` resolves the newest `wow_classic_beta` build from wago.tools' `/api/builds/latest` JSON. Downloaded CSVs are cached under `cache/` (git-ignored, as is `data/*.db`).

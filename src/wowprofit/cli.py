@@ -59,8 +59,9 @@ def cmd_rank(args: argparse.Namespace) -> None:
             f"{format_money(r.profit):>14}  {r.roi:6.0%}  {r.recipe.name} -> {r.recipe.output_count}x {out}"
             f"  [cost {format_money(r.cost)}, sell via {r.best_exit}]"
         )
-        for line in r.crafted_reagents:
-            print(f"{'':>24}chain: {line}")
+        for step in r.steps:
+            if step.action == "craft" and step.via != r.recipe.name:
+                print(f"{'':>24}chain: {step.quantity}x {step.name} via {step.via}")
 
 
 def cmd_ui(args: argparse.Namespace) -> None:

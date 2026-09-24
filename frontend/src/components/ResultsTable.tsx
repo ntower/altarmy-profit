@@ -1,44 +1,61 @@
-import { Fragment, useState } from 'react'
-import { List, Stack, Table, Text, UnstyledButton } from '@mantine/core'
-import type { RankResult } from '../api/client'
+import { Fragment, useState, type ReactNode } from 'react'
+import { List, Table, UnstyledButton } from '@mantine/core'
+import type { ItemMap, RankResult } from '../api/client'
 import { formatMoney, formatRoi } from '../lib/money'
+import { Hover, ItemLink, RecipeTooltip } from './ItemTooltip'
 
 const COLUMNS = ['', 'Profit', 'ROI', 'Recipe', 'Profession', 'Output', 'Cost', 'Revenue', 'Sell via']
 
-function Details({ result }: { result: RankResult }) {
+type Step = RankResult['steps'][number]
+
+const signedMoney = (copper: number) => (copper > 0 ? '+' : '') + formatMoney(copper)
+
+/** A step as one or more instruction lines; disenchanting splits into disenchant, then sell the mats. */
+function describe({ action, item_id, name, quantity, value, via }: Step, items: ItemMap): ReactNode[] {
+  const item = <ItemLink item={items[item_id]} name={name} />
+  switch (action) {
+    case 'buy':
+      return [
+        <>
+          Purchase {quantity}x {item} on the AH ({signedMoney(value)})
+        </>,
+      ]
+    case 'craft':
+      return [
+        <>
+          Craft {quantity}x {item}
+        </>,
+      ]
+    case 'sell':
+      if (via === 'disenchant')
+        return [
+          <>
+            Disenchant {quantity > 1 ? `${quantity}x ` : ''}
+            {item}
+          </>,
+          `Sell materials (${signedMoney(value)})`,
+        ]
+      return [
+        <>
+          Sell {quantity}x {item} {via === 'ah' ? 'on the AH' : 'to a vendor'} ({signedMoney(value)})
+        </>,
+      ]
+  }
+}
+
+function Details({ result, items }: { result: RankResult; items: ItemMap }) {
   return (
-    <Stack gap="xs" py="xs">
-      <div>
-        <Text fw={600} size="sm">
-          Chain
-        </Text>
-        {result.chain.length ? (
-          <List size="sm">
-            {result.chain.map((line) => (
-              <List.Item key={line}>{line}</List.Item>
-            ))}
-          </List>
-        ) : (
-          <Text size="sm">buy all reagents</Text>
-        )}
-      </div>
-      <div>
-        <Text fw={600} size="sm">
-          Sell options (per item)
-        </Text>
-        <List size="sm">
-          {result.exits.map((e) => (
-            <List.Item key={e.kind}>
-              {e.kind}: {formatMoney(e.value)}
-            </List.Item>
-          ))}
-        </List>
-      </div>
-    </Stack>
+    <List type="ordered" size="sm" py="xs">
+      {result.steps
+        .flatMap((step) => describe(step, items))
+        .map((line, i) => (
+          <List.Item key={i}>{line}</List.Item>
+        ))}
+    </List>
   )
 }
 
-export function ResultsTable({ results }: { results: RankResult[] }) {
+export function ResultsTable({ results, items }: { results: RankResult[]; items: ItemMap }) {
   const [open, setOpen] = useState<ReadonlySet<number>>(new Set())
   const toggle = (id: number) =>
     setOpen((prev) => {
@@ -80,10 +97,24 @@ export function ResultsTable({ results }: { results: RankResult[] }) {
                     {formatMoney(r.profit)}
                   </Table.Td>
                   <Table.Td>{formatRoi(r.roi)}</Table.Td>
-                  <Table.Td>{r.recipe}</Table.Td>
+                  <Table.Td>
+                    <Hover
+                      tooltip={
+                        <RecipeTooltip
+                          name={r.recipe}
+                          profession={r.profession}
+                          reagents={r.reagents}
+                          output={items[r.output_item_id]}
+                          items={items}
+                        />
+                      }
+                    >
+                      {r.recipe}
+                    </Hover>
+                  </Table.Td>
                   <Table.Td>{r.profession}</Table.Td>
                   <Table.Td>
-                    {r.output_count}x {r.output_name}
+                    {r.output_count}x <ItemLink item={items[r.output_item_id]} name={r.output_name} />
                   </Table.Td>
                   <Table.Td ff="monospace">{formatMoney(r.cost)}</Table.Td>
                   <Table.Td ff="monospace">{formatMoney(r.revenue)}</Table.Td>
@@ -93,7 +124,7 @@ export function ResultsTable({ results }: { results: RankResult[] }) {
                   <Table.Tr>
                     <Table.Td />
                     <Table.Td colSpan={COLUMNS.length - 1}>
-                      <Details result={r} />
+                      <Details result={r} items={items} />
                     </Table.Td>
                   </Table.Tr>
                 )}

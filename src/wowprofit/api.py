@@ -12,15 +12,15 @@ import threading
 import urllib.error
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, prices, service
+from . import db, prices, service, store
 from .store import CACHE_DIR, DISENCHANT_CSV
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -41,6 +41,41 @@ class ExitOut(BaseModel):
     value: int  # copper per item, after cuts
 
 
+class StepOut(BaseModel):
+    action: Literal["buy", "craft", "sell"]
+    item_id: int
+    name: str
+    quantity: int
+    value: int  # copper for the whole step: negative when buying, positive when selling
+    via: str  # craft: recipe name; sell: vendor | ah | disenchant
+
+
+class ItemCount(BaseModel):
+    item_id: int
+    count: int
+
+
+class ItemInfo(BaseModel):
+    """Everything an item tooltip shows."""
+
+    id: int
+    name: str
+    quality: int  # 0 poor .. 5 legendary
+    class_id: int  # 2 weapon, 4 armor, ...
+    subclass_name: str | None
+    inventory_type: int  # equip slot, 0 if not equippable
+    bonding: int  # 1 on pickup, 2 on equip, 3 on use, 4 quest item
+    item_delay: int  # weapon speed, ms
+    container_slots: int
+    required_level: int
+    required_skill: str | None
+    required_skill_rank: int
+    description: str | None
+    sell_price: int
+    icon: str | None  # wow.zamimg.com icon name
+    ah_price: int | None
+
+
 class RankResult(BaseModel):
     recipe_id: int
     recipe: str
@@ -54,11 +89,13 @@ class RankResult(BaseModel):
     roi: float
     best_exit: str
     exits: list[ExitOut]
-    chain: list[str]  # sub-crafted reagents, e.g. "2x Bolt of Linen Cloth via Bolt of Linen Cloth"
+    reagents: list[ItemCount]
+    steps: list[StepOut]  # buy reagents, craft (intermediates first), sell
 
 
 class RankResponse(BaseModel):
     results: list[RankResult]
+    items: dict[int, ItemInfo]  # every item the results mention, for tooltips
 
 
 class UpdateResult(BaseModel):
@@ -170,9 +207,16 @@ def get_rank(
     min_profit: Annotated[int, Query(description="copper")] = 0,
     top: Annotated[int, Query(ge=1, le=500)] = 25,
 ) -> RankResponse:
-    base = _state(request).cache.get()
+    state = _state(request)
+    base = state.cache.get()
     results = service.search(base, professions, min_profit, top)
+    item_ids = {s.item_id for r in results for s in r.steps} | {
+        i for r in results for i, _ in r.recipe.reagents
+    }
+    with _connect(state) as conn:
+        details = store.load_item_details(conn, item_ids)
     return RankResponse(
+        items={i: ItemInfo(**asdict(d), ah_price=base.prices.get(i)) for i, d in details.items()},
         results=[
             RankResult(
                 recipe_id=r.recipe.id,
@@ -189,10 +233,21 @@ def get_rank(
                 roi=r.roi,
                 best_exit=r.best_exit,
                 exits=[ExitOut(kind=e.kind, value=e.value) for e in r.exits],
-                chain=r.crafted_reagents,
+                reagents=[ItemCount(item_id=i, count=c) for i, c in r.recipe.reagents],
+                steps=[
+                    StepOut(
+                        action=cast(Literal["buy", "craft", "sell"], s.action),
+                        item_id=s.item_id,
+                        name=s.name,
+                        quantity=s.quantity,
+                        value=s.value,
+                        via=s.via,
+                    )
+                    for s in r.steps
+                ],
             )
             for r in results
-        ]
+        ],
     )
 
 
