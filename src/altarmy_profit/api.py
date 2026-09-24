@@ -2,12 +2,11 @@
 
 Money is integer copper on the wire; the front end formats it. Handlers are plain `def` so FastAPI runs
 them in its threadpool: the game data download blocks for a while and must not stall other requests.
-Each handler opens its own SQLite connection (connections are not shared across threads).
+Each handler opens its own connection from the shared `db.Database` (never shared across threads).
 """
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 import urllib.error
 from collections.abc import Iterable, Iterator, Mapping, Sequence
@@ -19,6 +18,7 @@ from typing import Annotated, Literal, cast
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy import Connection
 
 from . import altarmy, db, engine, prices, service, store, versions
 from .store import CACHE_DIR
@@ -39,13 +39,13 @@ class SelectionModel(BaseModel):
 
 
 class Status(BaseModel):
-    db_path: str
+    db_path: str  # the SQLite file, or the database URL without its password
     build: str | None
     items: int
     recipes: int
-    prices: int
+    prices: int  # current prices of the selection's auction house
     characters: int
-    last_auctionator_import: str | None  # SQLite CURRENT_TIMESTAMP text, UTC
+    last_auctionator_import: str | None  # "YYYY-MM-DD HH:MM:SS", UTC
     last_altarmy_sync: str | None  # same format
     last_auctionator_sync: str | None  # same format; set even when the scan had no prices for the realm
     altarmy_path: str | None
@@ -214,7 +214,7 @@ class EvaluateResponse(BaseModel):
 
 class AhBlockedItem(BaseModel):
     item_id: int
-    added_at: str  # SQLite CURRENT_TIMESTAMP text, UTC
+    added_at: str  # "YYYY-MM-DD HH:MM:SS", UTC
 
 
 class AhBlocked(BaseModel):
@@ -282,9 +282,10 @@ class VersionOut(BaseModel):
 # --- app state and helpers -------------------------------------------------------------------------
 @dataclass
 class AppState:
-    """One game version's database, cached market and locks, plus what every version shares."""
+    """One game version's cached markets and locks, plus what every version shares."""
 
     version: GameVersion
+    database: db.Database  # shared by every version
     cache_dir: Path
     cache: service.MarketCache
     update_lock: threading.Lock
@@ -292,8 +293,8 @@ class AppState:
     wow_roots: Sequence[Path]  # where to look for the addons' SavedVariables
 
     @property
-    def db_path(self) -> Path:
-        return self.version.db_path
+    def key(self) -> str:
+        return self.version.key
 
 
 def _states(request: Request) -> dict[str, AppState]:
@@ -312,13 +313,10 @@ State = Annotated[AppState, Depends(_state)]
 
 
 @contextmanager
-def _connect(state: AppState) -> Iterator[sqlite3.Connection]:
-    conn = db.connect(state.db_path)
-    try:
-        db.init_schema(conn)
+def _connect(state: AppState) -> Iterator[Connection]:
+    """A connection in a transaction, committed when the block succeeds."""
+    with state.database.begin() as conn:
         yield conn
-    finally:
-        conn.close()
 
 
 @contextmanager
@@ -336,10 +334,12 @@ def _http_errors() -> Iterator[None]:
         raise HTTPException(500, str(e)) from e
 
 
-def _sync(state: AppState, conn: sqlite3.Connection, force: bool = False) -> list[str]:
+def _sync(state: AppState, conn: Connection, force: bool = False) -> list[str]:
     """Re-import whichever addon file the game rewrote; returns the sync's warnings."""
     with state.sync_lock:
-        result = service.sync(conn, state.wow_roots, force=force, flavors=state.version.flavor_folders)
+        result = service.sync(
+            conn, state.key, state.wow_roots, force=force, flavors=state.version.flavor_folders
+        )
     if result.changed:
         state.cache.invalidate()
     return result.warnings
@@ -349,23 +349,25 @@ def _selection_model(sel: service.Selection | None) -> SelectionModel | None:
     return None if sel is None else SelectionModel(realm=sel.realm, faction=sel.faction)
 
 
-def _status(state: AppState, conn: sqlite3.Connection, warnings: list[str] | None = None) -> Status:
-    sel, _ = service.selected_characters(conn)
+def _status(state: AppState, conn: Connection, warnings: list[str] | None = None) -> Status:
+    gv = state.key
+    sel, _ = service.selected_characters(conn, gv)
+    ah = service.auction_house_of(conn, gv, sel)
     return Status(
-        db_path=str(state.db_path),
-        build=db.get_meta(conn, "build"),
-        items=db.count_rows(conn, "items"),
-        recipes=db.count_rows(conn, "recipes"),
-        prices=db.count_rows(conn, "prices"),
-        characters=db.count_rows(conn, "characters"),
-        last_auctionator_import=db.last_import(conn),
-        last_altarmy_sync=db.get_meta(conn, "altarmy_synced"),
-        last_auctionator_sync=db.get_meta(conn, "auctionator_synced"),
-        altarmy_path=db.get_meta(conn, "altarmy_path"),
-        auctionator_path=db.get_meta(conn, "auctionator_path"),
-        auctionator_realm=db.get_meta(conn, "auctionator_realm"),
+        db_path=state.database.display_url,
+        build=db.get_build(conn, gv),
+        items=db.count_rows(conn, "items", gv),
+        recipes=db.count_rows(conn, "recipes", gv),
+        prices=prices.count_current(conn, ah),
+        characters=db.count_rows(conn, "characters", gv),
+        last_auctionator_import=prices.last_import(conn, ah),
+        last_altarmy_sync=db.get_setting(conn, gv, "altarmy_synced"),
+        last_auctionator_sync=db.get_setting(conn, gv, "auctionator_synced"),
+        altarmy_path=db.get_setting(conn, gv, "altarmy_path"),
+        auctionator_path=db.get_setting(conn, gv, "auctionator_path"),
+        auctionator_realm=db.get_setting(conn, gv, "auctionator_realm"),
         selection=_selection_model(sel),
-        data_version=service.data_version(conn),
+        data_version=service.data_version(conn, gv),
         warnings=warnings or [],
     )
 
@@ -396,8 +398,8 @@ def sync_now(state: State) -> Status:
 @router.get("/characters")
 def get_characters(state: State) -> Characters:
     with _connect(state) as conn:
-        chars = store.load_characters(conn)
-        sel = service.selection(conn, chars)
+        chars = store.load_characters(conn, state.key)
+        sel = service.selection(conn, state.key, chars)
     return Characters(
         groups=[
             GroupOut(
@@ -428,14 +430,14 @@ def get_characters(state: State) -> Characters:
 def put_selection(state: State, body: SelectionModel) -> Status:
     """Switch realm/faction; that realm's Auctionator prices replace the previous ones."""
     with _http_errors(), _connect(state) as conn:
-        service.select(conn, body.realm, body.faction)
+        service.select(conn, state.key, body.realm, body.faction)
         return _status(state, conn, _sync(state, conn))
 
 
 @router.put("/sources")
 def put_sources(state: State, body: Sources) -> Status:
     with _http_errors(), _connect(state) as conn:
-        service.set_sources(conn, body.altarmy_path, body.auctionator_path)
+        service.set_sources(conn, state.key, body.altarmy_path, body.auctionator_path)
         return _status(state, conn, _sync(state, conn, force=True))
 
 
@@ -459,10 +461,7 @@ def get_rank(
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, most profitable first. Bounds are
     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
-    base = state.cache.get()
-    with _connect(state) as conn:
-        _, chars = service.selected_characters(conn)
-        no_ah = _no_ah(conn)
+    base, chars, no_ah = _selected(state)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
     matches = service.search(
         base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
@@ -480,10 +479,7 @@ def get_rank(
 @router.post("/evaluate")
 def evaluate(state: State, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
-    base = state.cache.get()
-    with _connect(state) as conn:
-        _, chars = service.selected_characters(conn)
-        no_ah = _no_ah(conn)
+    base, chars, no_ah = _selected(state)
     r = service.evaluate(
         base,
         chars,
@@ -501,6 +497,15 @@ def evaluate(state: State, body: EvaluateRequest) -> EvaluateResponse:
     )
 
 
+def _selected(state: AppState) -> tuple[engine.Market, list[altarmy.Character], frozenset[int]]:
+    """The selection's market (priced by its auction house), characters and never-on-the-AH items."""
+    with _connect(state) as conn:
+        sel, chars = service.selected_characters(conn, state.key)
+        ah = service.auction_house_of(conn, state.key, sel)
+        no_ah = _no_ah(state, conn)
+    return state.cache.get(ah), chars, no_ah
+
+
 def _item_infos(
     state: AppState, base: engine.Market, results: Sequence[engine.Result]
 ) -> dict[int, ItemInfo]:
@@ -511,13 +516,13 @@ def _item_infos(
         | {m.item_id for r in results for e in r.exits for m in e.materials}
     )
     with _connect(state) as conn:
-        return _item_details(conn, base, item_ids)
+        return _item_details(state, conn, base, item_ids)
 
 
 def _item_details(
-    conn: sqlite3.Connection, base: engine.Market, item_ids: Iterable[int]
+    state: AppState, conn: Connection, base: engine.Market, item_ids: Iterable[int]
 ) -> dict[int, ItemInfo]:
-    details = store.load_item_details(conn, item_ids)
+    details = store.load_item_details(conn, state.key, item_ids)
     return {
         i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
         for i, d in details.items()
@@ -571,15 +576,16 @@ def _result_out(r: engine.Result, base: engine.Market, crafters: dict[int, list[
     )
 
 
-def _no_ah(conn: sqlite3.Connection) -> frozenset[int]:
-    return frozenset(i for i, _ in store.load_ah_blocked(conn))
+def _no_ah(state: AppState, conn: Connection) -> frozenset[int]:
+    return frozenset(i for i, _ in store.load_ah_blocked(conn, state.key))
 
 
-def _ah_blocked(state: AppState, conn: sqlite3.Connection) -> AhBlocked:
-    blocked = store.load_ah_blocked(conn)
+def _ah_blocked(state: AppState, conn: Connection) -> AhBlocked:
+    blocked = store.load_ah_blocked(conn, state.key)
+    base = state.cache.get(service.selected_auction_house(conn, state.key))
     return AhBlocked(
         items=[AhBlockedItem(item_id=i, added_at=added) for i, added in blocked],
-        details=_item_details(conn, state.cache.get(), (i for i, _ in blocked)),
+        details=_item_details(state, conn, base, (i for i, _ in blocked)),
     )
 
 
@@ -593,7 +599,7 @@ def get_ah_blocked(state: State) -> AhBlocked:
 def block_ah(state: State, item_id: int) -> AhBlocked:
     """Never sell `item_id` on the AH: /api/rank and /api/evaluate only vendor or disenchant it."""
     with _connect(state) as conn:
-        store.set_ah_blocked(conn, item_id, True)
+        store.set_ah_blocked(conn, state.key, item_id, True)
         return _ah_blocked(state, conn)
 
 
@@ -601,7 +607,7 @@ def block_ah(state: State, item_id: int) -> AhBlocked:
 def unblock_ah(state: State, item_id: int) -> AhBlocked:
     """Allow selling `item_id` on the AH again."""
     with _connect(state) as conn:
-        store.set_ah_blocked(conn, item_id, False)
+        store.set_ah_blocked(conn, state.key, item_id, False)
         return _ah_blocked(state, conn)
 
 
@@ -627,7 +633,7 @@ def update_game_data(
 def _source_files(state: AppState, find: service.Finder, key: str) -> SourceFiles:
     files = [str(f) for f in find(state.wow_roots, state.version.flavor_folders)]
     with _connect(state) as conn:
-        last = db.get_meta(conn, key)
+        last = db.get_setting(conn, state.key, key)
     return SourceFiles(files=files, default=service.default_path(files, last))
 
 
@@ -651,11 +657,11 @@ def reload(state: State) -> Status:
 
 @router.get("/versions")
 def get_versions(request: Request) -> list[VersionOut]:
-    """The game versions served, each with the build its database holds."""
+    """The game versions served, each with the build its data comes from."""
     out = []
     for state in _states(request).values():
         with _connect(state) as conn:
-            build, recipes = db.get_meta(conn, "build"), db.count_rows(conn, "recipes")
+            build, recipes = db.get_build(conn, state.key), db.count_rows(conn, "recipes", state.key)
         out.append(VersionOut(key=state.version.key, label=state.version.label, build=build, recipes=recipes))
     return out
 
@@ -663,18 +669,22 @@ def get_versions(request: Request) -> list[VersionOut]:
 def create_app(
     game_versions: Mapping[str, GameVersion] = versions.VERSIONS,
     *,
+    database: db.Database | None = None,
     cache_dir: Path = CACHE_DIR,
     static_dir: Path | None = DEFAULT_DIST,
     wow_roots: Sequence[Path] = tuple(prices.WOW_ROOTS),
 ) -> FastAPI:
-    """Build the app for `game_versions`, each with its own database and data files. Touches no database or
-    network, so tests and the OpenAPI export can call it freely."""
+    """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
+    `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network (the schema is
+    migrated on the first request), so tests and the OpenAPI export can call it freely."""
+    database = database or db.Database(db.default_url())
     app = FastAPI(title="altarmy-profit", version="0.1.0")
     app.state.wow = {
         key: AppState(
             v,
+            database,
             cache_dir,
-            service.MarketCache(v.db_path, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
+            service.MarketCache(database, v.key, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
             threading.Lock(),
             threading.Lock(),
             wow_roots,

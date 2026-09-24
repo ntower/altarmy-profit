@@ -1,20 +1,85 @@
-"""Shared fixtures: a tiny fake DB2 CSV set shaped like the wago.tools exports."""
+"""Shared fixtures: the database (SQLite, or Postgres with TEST_DATABASE_URL) and a tiny fake DB2 CSV set
+shaped like the wago.tools exports."""
 
 import csv
-import sqlite3
-from collections.abc import Iterator
+import os
+import shutil
+from collections.abc import Iterator, Mapping
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from sqlalchemy import Connection, text
 
-from altarmy_profit import db
+from altarmy_profit import db, prices, schema
 from altarmy_profit.versions import VERSIONS, GameVersion
 
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 
 SV_DIR = "_classic_beta_/WTF/Account/ACCT/SavedVariables"  # under `wow_root`
+FOREVER = "forever"
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")  # e.g. postgresql+psycopg://u:p@localhost/test
+
+
+@pytest.fixture(scope="session")
+def _migrated(tmp_path_factory: pytest.TempPathFactory) -> Path | None:
+    """Migrate once per session: a SQLite template file each test copies, or the Postgres database
+    (whose `public` schema is dropped first, so point TEST_DATABASE_URL at a throwaway database)."""
+    if TEST_DATABASE_URL:
+        database = db.Database(TEST_DATABASE_URL)
+        with database.engine.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE"))
+            conn.execute(text("CREATE SCHEMA public"))
+        database.ensure_schema()
+        database.dispose()
+        return None
+    template = tmp_path_factory.mktemp("template") / "template.sqlite"
+    database = db.Database(db.sqlite_url(template))
+    database.ensure_schema()
+    database.dispose()
+    return template
+
+
+@pytest.fixture
+def database(tmp_path: Path, _migrated: Path | None) -> Iterator[db.Database]:
+    """An empty, migrated database with the game versions registered."""
+    if _migrated is None:
+        assert TEST_DATABASE_URL
+        database = db.Database(TEST_DATABASE_URL)
+        tables = [t.name for t in schema.metadata.sorted_tables if t is not schema.game_versions]
+        with database.engine.begin() as conn:
+            conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY CASCADE"))
+            conn.execute(schema.game_versions.update().values(build=None))
+    else:
+        path = tmp_path / "test.sqlite"
+        shutil.copyfile(_migrated, path)
+        database = db.Database(db.sqlite_url(path))
+    database.ensure_schema()
+    yield database
+    database.dispose()
+
+
+@pytest.fixture
+def conn(database: db.Database) -> Iterator[Connection]:
+    """An autocommit connection, so what a test writes is visible to the API's own connections."""
+    with database.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as c:
+        yield c
+
+
+def set_prices(
+    conn: Connection,
+    item_prices: Mapping[int, int],
+    realm: str = "Classic Beta PvE",
+    faction: str = "",
+    game_version: str = FOREVER,
+) -> int:
+    """Manual prices on an auction house (default: the one Classic Beta PvE's factions share, as the
+    tailor's Auctionator scan would be). Returns its id."""
+    ah = prices.auction_house(conn, game_version, realm, faction)
+    for item_id, price in item_prices.items():
+        prices.set_price(conn, ah, item_id, price)
+    return ah
 
 
 def write_csv(path: Path, header: list[str], rows: list[dict[str, object]]) -> Path:
@@ -185,20 +250,11 @@ def vendor_csv(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def game_versions(tmp_path: Path) -> dict[str, GameVersion]:
-    """Both versions with temporary databases: Forever in test.db (the `conn` fixture's file) with its data
-    files in tmp_path (see `vendor_csv`), TBC in tbc.db with no data files."""
+    """Both versions: Forever with its data files in tmp_path (see `vendor_csv`), TBC with none."""
     return {
-        "forever": replace(VERSIONS["forever"], db_path=tmp_path / "test.db", data_dir=tmp_path),
-        "tbc": replace(VERSIONS["tbc"], db_path=tmp_path / "tbc.db", data_dir=tmp_path / "tbc"),
+        "forever": replace(VERSIONS["forever"], data_dir=tmp_path),
+        "tbc": replace(VERSIONS["tbc"], data_dir=tmp_path / "tbc"),
     }
-
-
-@pytest.fixture
-def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
-    c = db.connect(tmp_path / "test.db")
-    db.init_schema(c)
-    yield c
-    c.close()
 
 
 @pytest.fixture

@@ -2027,7 +2027,7 @@
     },
     "/api/versions": {
       "get": {
-        "description": "The game versions served, each with the build its database holds.",
+        "description": "The game versions served, each with the build its data comes from.",
         "operationId": "get_versions_api_versions_get",
         "responses": {
           "200": {

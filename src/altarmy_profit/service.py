@@ -6,12 +6,13 @@ SavedVariables file whenever the game has rewritten it (on logout or /reload).
 
 from __future__ import annotations
 
-import sqlite3
 import threading
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+
+from sqlalchemy import Connection
 
 from . import altarmy, auctionator, db, ingest, prices, store
 from .altarmy import Character
@@ -30,32 +31,46 @@ from .versions import GameVersion
 
 
 class MarketCache:
-    """One in-process Market shared by all requests; rebuilt from SQLite lazily after invalidate().
+    """In-process Markets for one game version, one per auction house, shared by all requests; rebuilt
+    from the database lazily after invalidate().
 
     Market is read-only once built, so handing the same instance to several threads is safe.
     """
 
-    def __init__(self, db_path: Path, *, ah_cut: float = AH_CUT, mail_postage: int = MAIL_POSTAGE) -> None:
-        self.db_path = db_path
+    def __init__(
+        self,
+        database: db.Database,
+        game_version: str,
+        *,
+        ah_cut: float = AH_CUT,
+        mail_postage: int = MAIL_POSTAGE,
+    ) -> None:
+        self.database = database
+        self.game_version = game_version
         self.ah_cut = ah_cut
         self.mail_postage = mail_postage
         self._lock = threading.Lock()
-        self._market: Market | None = None
+        self._markets: dict[int | None, Market] = {}
 
-    def get(self) -> Market:
+    def get(self, auction_house_id: int | None) -> Market:
+        """The version's game data priced by the auction house (None: unpriced)."""
         with self._lock:
-            if self._market is None:
-                conn = db.connect(self.db_path)
-                try:
-                    db.init_schema(conn)
-                    self._market = store.load_market(conn, ah_cut=self.ah_cut, mail_postage=self.mail_postage)
-                finally:
-                    conn.close()
-            return self._market
+            market = self._markets.get(auction_house_id)
+            if market is None:
+                with self.database.begin() as conn:
+                    market = store.load_market(
+                        conn,
+                        self.game_version,
+                        auction_house_id,
+                        ah_cut=self.ah_cut,
+                        mail_postage=self.mail_postage,
+                    )
+                self._markets[auction_house_id] = market
+            return market
 
     def invalidate(self) -> None:
         with self._lock:
-            self._market = None
+            self._markets.clear()
 
 
 @dataclass(frozen=True)
@@ -136,10 +151,11 @@ def _market(
 
 
 # --- realm/faction selection -----------------------------------------------------------------------
-def selection(conn: sqlite3.Connection, chars: Sequence[Character]) -> Selection | None:
+def selection(conn: Connection, game_version: str, chars: Sequence[Character]) -> Selection | None:
     """The saved realm/faction if it still has characters, else the group with the most characters."""
     groups = altarmy.groups(chars)
-    realm, faction = db.get_meta(conn, "selected_realm"), db.get_meta(conn, "selected_faction")
+    realm = db.get_setting(conn, game_version, "selected_realm")
+    faction = db.get_setting(conn, game_version, "selected_faction")
     for g in groups:
         if (g.realm, g.faction) == (realm, faction):
             return Selection(g.realm, g.faction)
@@ -149,19 +165,45 @@ def selection(conn: sqlite3.Connection, chars: Sequence[Character]) -> Selection
     return Selection(best.realm, best.faction)
 
 
-def select(conn: sqlite3.Connection, realm: str, faction: str) -> None:
-    if not any((g.realm, g.faction) == (realm, faction) for g in altarmy.groups(store.load_characters(conn))):
+def select(conn: Connection, game_version: str, realm: str, faction: str) -> None:
+    groups = altarmy.groups(store.load_characters(conn, game_version))
+    if not any((g.realm, g.faction) == (realm, faction) for g in groups):
         raise ValueError(f"no characters on {realm} ({faction})")
-    db.set_meta(conn, "selected_realm", realm)
-    db.set_meta(conn, "selected_faction", faction)
+    db.set_setting(conn, game_version, "selected_realm", realm)
+    db.set_setting(conn, game_version, "selected_faction", faction)
 
 
-def selected_characters(conn: sqlite3.Connection) -> tuple[Selection | None, list[Character]]:
-    chars = store.load_characters(conn)
-    sel = selection(conn, chars)
+def selected_characters(conn: Connection, game_version: str) -> tuple[Selection | None, list[Character]]:
+    chars = store.load_characters(conn, game_version)
+    sel = selection(conn, game_version, chars)
     if sel is None:
         return None, []
     return sel, [c for c in chars if (c.realm, c.faction) == (sel.realm, sel.faction)]
+
+
+def auction_house_of(conn: Connection, game_version: str, sel: Selection | None) -> int | None:
+    """The auction house that prices a selection (the unnamed one without characters); None if unknown."""
+    realm, faction = (sel.realm, sel.faction) if sel is not None else ("", "")
+    return prices.find_auction_house(conn, game_version, realm, faction)
+
+
+def selected_auction_house(conn: Connection, game_version: str) -> int | None:
+    sel, _ = selected_characters(conn, game_version)
+    return auction_house_of(conn, game_version, sel)
+
+
+def pricing_auction_house(conn: Connection, game_version: str) -> int:
+    """Where manual and CSV prices go: the selection's auction house, or the unnamed one without
+    characters. ValueError if the selected realm has no auction house yet."""
+    sel, _ = selected_characters(conn, game_version)
+    if sel is None:
+        return prices.unnamed_auction_house(conn, game_version)
+    ah = auction_house_of(conn, game_version, sel)
+    if ah is None:
+        raise ValueError(
+            f"No auction house known for {sel.realm} ({sel.faction}) yet: import its Auctionator scan first."
+        )
+    return ah
 
 
 def match_auctionator_realm(realms: Iterable[str], realm: str, faction: str) -> str | None:
@@ -187,23 +229,26 @@ def default_path(files: Sequence[str], last: str | None) -> str | None:
     return last or (files[0] if files else None)
 
 
-def data_version(conn: sqlite3.Connection) -> int:
+def data_version(conn: Connection, game_version: str) -> int:
     """Bumped by every sync that changed something, so the front end knows to refetch."""
-    return int(db.get_meta(conn, "data_version") or 0)
+    return int(db.get_setting(conn, game_version, "data_version") or 0)
 
 
-def set_sources(conn: sqlite3.Connection, altarmy_path: str | None, auctionator_path: str | None) -> None:
+def set_sources(
+    conn: Connection, game_version: str, altarmy_path: str | None, auctionator_path: str | None
+) -> None:
     """Point the sync at other SavedVariables files; None keeps that source as it is."""
     for key, path in (("altarmy_path", altarmy_path), ("auctionator_path", auctionator_path)):
         if path is None:
             continue
         if not Path(path).is_file():
             raise FileNotFoundError(f"File not found: {path}")
-        db.set_meta(conn, key, path)
+        db.set_setting(conn, game_version, key, path)
 
 
 def sync(
-    conn: sqlite3.Connection,
+    conn: Connection,
+    game_version: str,
     roots: Iterable[Path] = prices.WOW_ROOTS,
     *,
     force: bool = False,
@@ -214,12 +259,12 @@ def sync(
     Unset paths are filled in from the files found under the WoW installs in `roots`, looking only in the
     game version's `flavors` folders (e.g. ("_anniversary_",)) when given.
     """
-    found = _Finder(list(roots), flavors)
+    found = _Finder(game_version, list(roots), flavors)
     warnings: list[str] = []
     changed = _sync_altarmy(conn, found, force, warnings)
     changed = _sync_auctionator(conn, found, force, warnings) or changed
     if changed:
-        db.set_meta(conn, "data_version", str(data_version(conn) + 1))
+        db.set_setting(conn, game_version, "data_version", str(data_version(conn, game_version) + 1))
     return SyncResult(changed, warnings)
 
 
@@ -228,8 +273,10 @@ Finder = Callable[[Iterable[Path], Sequence[str] | None], list[Path]]  # prices.
 
 @dataclass(frozen=True)
 class _Finder:
-    """Where to look for addon files: WoW installs and, optionally, only some flavor folders."""
+    """Which version's addon files, and where to look for them: WoW installs and, optionally, only some
+    flavor folders."""
 
+    game_version: str
     roots: list[Path]
     flavors: Sequence[str] | None
 
@@ -237,23 +284,24 @@ class _Finder:
         return find(self.roots, self.flavors)
 
 
-def _source(conn: sqlite3.Connection, key: str, find: Finder, found: _Finder) -> Path | None:
-    path = db.get_meta(conn, key)
+def _source(conn: Connection, key: str, find: Finder, found: _Finder) -> Path | None:
+    path = db.get_setting(conn, found.game_version, key)
     if path is None:
         path = default_path([str(f) for f in found(find)], None)
         if path is None:
             return None
-        db.set_meta(conn, key, path)
+        db.set_setting(conn, found.game_version, key, path)
     return Path(path)
 
 
-def _changed_mtime(conn: sqlite3.Connection, path: Path, key: str, force: bool) -> str | None:
+def _changed_mtime(conn: Connection, game_version: str, path: Path, key: str, force: bool) -> str | None:
     """The file's mtime if it differs from the one stored under `key` (or `force`), else None."""
     mtime = str(path.stat().st_mtime_ns)
-    return mtime if force or mtime != db.get_meta(conn, key) else None
+    return mtime if force or mtime != db.get_setting(conn, game_version, key) else None
 
 
-def _sync_altarmy(conn: sqlite3.Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
+def _sync_altarmy(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
+    gv = found.game_version
     path = _source(conn, "altarmy_path", prices.find_altarmy_files, found)
     if path is None:
         warnings.append("No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab.")
@@ -261,7 +309,7 @@ def _sync_altarmy(conn: sqlite3.Connection, found: _Finder, force: bool, warning
     if not path.is_file():
         warnings.append(f"Alt Army file not found: {path}")
         return False
-    mtime = _changed_mtime(conn, path, "altarmy_mtime", force)
+    mtime = _changed_mtime(conn, gv, path, "altarmy_mtime", force)
     if mtime is None:
         return False
     try:
@@ -269,14 +317,17 @@ def _sync_altarmy(conn: sqlite3.Connection, found: _Finder, force: bool, warning
     except ValueError as e:
         warnings.append(f"Could not read {path}: {e}")
         return False
-    store.save_characters(conn, chars)
-    db.set_meta(conn, "altarmy_mtime", mtime)
-    db.set_meta(conn, "altarmy_synced", _now())
+    store.save_characters(conn, gv, chars)
+    db.set_setting(conn, gv, "altarmy_mtime", mtime)
+    db.set_setting(conn, gv, "altarmy_synced", _now())
     return True
 
 
-def _sync_auctionator(conn: sqlite3.Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
-    sel = selection(conn, store.load_characters(conn))
+def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
+    """Record the selected realm's scan when the file (or the selection) changed. Each auction house
+    keeps its own prices, so a file without the realm leaves the prices alone and only warns."""
+    gv = found.game_version
+    sel = selection(conn, gv, store.load_characters(conn, gv))
     if sel is None:
         return False  # no characters yet, so no realm to price
     path = _source(conn, "auctionator_path", prices.find_auctionator_files, found)
@@ -287,10 +338,10 @@ def _sync_auctionator(conn: sqlite3.Connection, found: _Finder, force: bool, war
         warnings.append(f"Auctionator file not found: {path}")
         return False
     wanted = f"{sel.realm}\t{sel.faction}"
-    moved = wanted != db.get_meta(conn, "auctionator_for")
-    mtime = _changed_mtime(conn, path, "auctionator_mtime", force or moved)
+    moved = wanted != db.get_setting(conn, gv, "auctionator_for")
+    mtime = _changed_mtime(conn, gv, path, "auctionator_mtime", force or moved)
     if mtime is None:
-        if not db.get_meta(conn, "auctionator_realm"):
+        if not db.get_setting(conn, gv, "auctionator_realm"):
             warnings.append(_no_prices(sel))
         return False
     try:
@@ -299,19 +350,21 @@ def _sync_auctionator(conn: sqlite3.Connection, found: _Finder, force: bool, war
         warnings.append(f"Could not read {path}: {e}")
         return False
     key = match_auctionator_realm(realms, sel.realm, sel.faction)
-    # Without a match, drop the previous realm's prices rather than rank with them.
-    prices.replace_auctionator_prices(conn, {} if key is None else realms[key])
     if key is None:
         warnings.append(_no_prices(sel))
-    db.set_meta(conn, "auctionator_realm", key or "")
-    db.set_meta(conn, "auctionator_for", wanted)
-    db.set_meta(conn, "auctionator_mtime", mtime)
-    db.set_meta(conn, "auctionator_synced", _now())
+    else:
+        ah = prices.auctionator_auction_house(conn, gv, key, sel.realm, sel.faction)
+        prices.record_auctionator(conn, ah, realms[key], prices.file_time(path))
+        prices.prune(conn)
+    db.set_setting(conn, gv, "auctionator_realm", key or "")
+    db.set_setting(conn, gv, "auctionator_for", wanted)
+    db.set_setting(conn, gv, "auctionator_mtime", mtime)
+    db.set_setting(conn, gv, "auctionator_synced", _now())
     return True
 
 
 def _now() -> str:
-    """UTC, in SQLite's CURRENT_TIMESTAMP format."""
+    """UTC, as the API sends timestamps."""
     return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
@@ -321,7 +374,7 @@ def _no_prices(sel: Selection) -> str:
 
 # --- game data -------------------------------------------------------------------------------------
 def update_game_data(
-    conn: sqlite3.Connection,
+    conn: Connection,
     version: GameVersion,
     cache_dir: Path,
     *,
@@ -334,16 +387,17 @@ def update_game_data(
     Returns (build, whether it rebuilt, row counts).
     """
     build = ingest.latest_build(version.wago_product)
-    if only_if_new and db.get_meta(conn, "build") == build:
-        return build, False, current_counts(conn)
-    return build, True, ingest.update(conn, build, cache_dir, version.disenchant_csv, version.vendor_csv)
+    if only_if_new and db.get_build(conn, version.key) == build:
+        return build, False, current_counts(conn, version.key)
+    stats = ingest.update(conn, version.key, build, cache_dir, version.disenchant_csv, version.vendor_csv)
+    return build, True, stats
 
 
-def current_counts(conn: sqlite3.Connection) -> dict[str, int]:
+def current_counts(conn: Connection, game_version: str) -> dict[str, int]:
     """The same counts `ingest.update` reports, read from the database as it stands."""
     return {
-        "items": db.count_rows(conn, "items"),
-        "recipes": db.count_rows(conn, "recipes"),
-        "disenchant_rows": db.count_rows(conn, "disenchant"),
-        "vendor_items": db.count_rows(conn, "vendor_items"),
+        "items": db.count_rows(conn, "items", game_version),
+        "recipes": db.count_rows(conn, "recipes", game_version),
+        "disenchant_rows": db.count_rows(conn, "disenchant", game_version),
+        "vendor_items": db.count_rows(conn, "vendor_items", game_version),
     }

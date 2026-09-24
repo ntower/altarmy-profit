@@ -1,15 +1,16 @@
-"""Download wago.tools DB2 CSVs and load items/recipes into SQLite."""
+"""Download wago.tools DB2 CSVs and load one game version's items and recipes into the database."""
 
 from __future__ import annotations
 
 import csv
 import json
-import sqlite3
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 
-from . import db
+from sqlalchemy import Connection, delete
+
+from . import db, schema
 
 LATEST_URL = "https://wago.tools/api/builds/latest"
 TABLES = [
@@ -95,6 +96,7 @@ def output_count(effect: dict[str, str]) -> int:
 
 
 ITEM_INSERT_COLUMNS = (
+    "game_version",
     "id",
     "name",
     "quality",
@@ -118,16 +120,26 @@ ITEM_INSERT_COLUMNS = (
 )
 
 
+GAME_DATA_TABLES = (
+    schema.recipe_reagents,
+    schema.recipes,
+    schema.items,
+    schema.disenchant,
+    schema.vendor_items,
+)
+
+
 def build_db(
     paths: dict[str, Path],
-    conn: sqlite3.Connection,
+    conn: Connection,
+    game_version: str,
     disenchant_csv: Path | None = None,
     vendor_csv: Path | None = None,
 ) -> dict[str, int]:
-    """Rebuild items/recipes/recipe_reagents/disenchant/vendor_items (prices are preserved)."""
-    db.init_schema(conn)
-    for t in ("items", "recipes", "recipe_reagents", "disenchant", "vendor_items"):
-        conn.execute(f"DELETE FROM {t}")
+    """Rebuild one version's items/recipes/recipe_reagents/disenchant/vendor_items; prices, characters
+    and other versions are left alone."""
+    for table in GAME_DATA_TABLES:
+        conn.execute(delete(table).where(table.c.game_version == game_version))
 
     skill_names = {_int(r["ID"]): r["DisplayName_lang"] for r in _rows(paths["SkillLine"])}
     subclass_names = {
@@ -145,6 +157,7 @@ def build_db(
         cls, sub, icon = classes.get(iid, (0, 0, 0))
         items.append(
             (
+                game_version,
                 iid,
                 r["Display_lang"],
                 _int(r["OverallQualityID"]),
@@ -167,8 +180,7 @@ def build_db(
                 max(1, _int(r.get("Stackable"), 1)),
             )
         )
-    placeholders = ", ".join("?" * len(ITEM_INSERT_COLUMNS))
-    conn.executemany(f"INSERT INTO items ({', '.join(ITEM_INSERT_COLUMNS)}) VALUES ({placeholders})", items)
+    conn.execute(schema.items.insert(), [dict(zip(ITEM_INSERT_COLUMNS, i, strict=True)) for i in items])
 
     spell_names = {_int(r["ID"]): r["Name_lang"] for r in _rows(paths["SpellName"])}
 
@@ -190,8 +202,9 @@ def build_db(
         if lst:
             reagents[_int(r["SpellID"])] = lst
 
-    known_items = {i[0] for i in items}
-    n_recipes = 0
+    known_items = {i[1] for i in items}
+    recipes: dict[int, dict[str, object]] = {}
+    recipe_reagents: dict[tuple[int, int], dict[str, object]] = {}
     for r in _rows(paths["SkillLineAbility"]):
         spell = _int(r["Spell"])
         line = _int(r["SkillLine"])
@@ -201,62 +214,74 @@ def build_db(
         if out_item not in known_items:
             continue
         rid = _int(r["ID"])
-        conn.execute(
-            "INSERT OR REPLACE INTO recipes VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (
-                rid,
-                spell,
-                spell_names.get(spell, f"Spell {spell}"),
-                line,
-                skill_names[line],
-                _int(r["MinSkillLineRank"]),
-                _int(r["TrivialSkillLineRankLow"]),
-                _int(r["TrivialSkillLineRankHigh"]),
-                out_item,
-                out_count,
-            ),
-        )
-        conn.executemany(
-            "INSERT OR REPLACE INTO recipe_reagents VALUES (?,?,?)", [(rid, i, c) for i, c in reagents[spell]]
-        )
-        n_recipes += 1
+        recipes[rid] = {  # a later row with the same id replaces an earlier one
+            "game_version": game_version,
+            "id": rid,
+            "spell_id": spell,
+            "name": spell_names.get(spell, f"Spell {spell}"),
+            "skill_line": line,
+            "skill_name": skill_names[line],
+            "min_skill": _int(r["MinSkillLineRank"]),
+            "trivial_low": _int(r["TrivialSkillLineRankLow"]),
+            "trivial_high": _int(r["TrivialSkillLineRankHigh"]),
+            "output_item_id": out_item,
+            "output_count": out_count,
+        }
+        for k in [k for k in recipe_reagents if k[0] == rid]:
+            del recipe_reagents[k]
+        for slot, (i, c) in enumerate(reagents[spell]):
+            recipe_reagents[rid, i] = {
+                "game_version": game_version,
+                "recipe_id": rid,
+                "item_id": i,
+                "count": c,
+                "slot": slot,
+            }
+    n_recipes = len(recipes)
+    if recipes:
+        conn.execute(schema.recipes.insert(), list(recipes.values()))
+    if recipe_reagents:
+        conn.execute(schema.recipe_reagents.insert(), list(recipe_reagents.values()))
 
-    n_de = 0
+    de_rows = []
     if disenchant_csv and disenchant_csv.exists():
-        for r in _rows(disenchant_csv):
-            conn.execute(
-                "INSERT INTO disenchant VALUES (?,?,?,?,?,?,?,?)",
-                (
-                    _int(r["item_class"]),
-                    _int(r["quality"]),
-                    _int(r["min_ilvl"]),
-                    _int(r["max_ilvl"]),
-                    _int(r["result_item_id"]),
-                    float(r["chance"]),
-                    _int(r["min_count"]),
-                    _int(r["max_count"]),
-                ),
-            )
-            n_de += 1
+        de_rows = [
+            {
+                "game_version": game_version,
+                "item_class": _int(r["item_class"]),
+                "quality": _int(r["quality"]),
+                "min_ilvl": _int(r["min_ilvl"]),
+                "max_ilvl": _int(r["max_ilvl"]),
+                "result_item_id": _int(r["result_item_id"]),
+                "chance": float(r["chance"]),
+                "min_count": _int(r["min_count"]),
+                "max_count": _int(r["max_count"]),
+            }
+            for r in _rows(disenchant_csv)
+        ]
+        if de_rows:
+            conn.execute(schema.disenchant.insert(), de_rows)
+    n_de = len(de_rows)
 
     n_vendor = 0
     if vendor_csv and vendor_csv.exists():
-        vendor_ids = [(_int(r["item_id"]),) for r in _rows(vendor_csv)]
-        conn.executemany("INSERT OR IGNORE INTO vendor_items VALUES (?)", vendor_ids)
+        vendor_ids = [_int(r["item_id"]) for r in _rows(vendor_csv)]
+        rows = [{"game_version": game_version, "item_id": i} for i in dict.fromkeys(vendor_ids)]
+        db.upsert(conn, schema.vendor_items, rows, ["game_version", "item_id"])
         n_vendor = len(vendor_ids)
 
-    conn.commit()
     return {"items": len(items), "recipes": n_recipes, "disenchant_rows": n_de, "vendor_items": n_vendor}
 
 
 def update(
-    conn: sqlite3.Connection,
+    conn: Connection,
+    game_version: str,
     build: str,
     cache_dir: Path,
     disenchant_csv: Path | None = None,
     vendor_csv: Path | None = None,
 ) -> dict[str, int]:
-    """Download `build` (cached per build) and rebuild the database from it, keeping prices."""
-    stats = build_db(download_all(build, cache_dir), conn, disenchant_csv, vendor_csv)
-    db.set_meta(conn, "build", build)
+    """Download `build` (cached per build) and rebuild the version's game data from it, keeping prices."""
+    stats = build_db(download_all(build, cache_dir), conn, game_version, disenchant_csv, vendor_csv)
+    db.set_build(conn, game_version, build)
     return stats

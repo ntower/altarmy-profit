@@ -3,11 +3,12 @@ name = "altarmy-profit"
 version = "0.1.0"
 description = "Local WoW Forever crafting profit finder (items, recipes, AH prices, disenchant chains)"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = ["sqlalchemy>=2.0", "alembic>=1.13"]
 
 [project.optional-dependencies]
 ui = ["fastapi>=0.115", "uvicorn>=0.30"]
-dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "httpx2>=2.13"]
+postgres = ["psycopg[binary]>=3.2"]
+dev = ["pytest>=8", "ruff>=0.6", "mypy>=1.10", "httpx2>=2.13", "psycopg[binary]>=3.2"]
 
 [project.scripts]
 altarmy-profit = "altarmy_profit.cli:main"
@@ -18,6 +19,10 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+# Alembic's revision files are not a package; ship them (and the template for new ones) as data.
+altarmy_profit = ["migrations/script.py.mako", "migrations/versions/*.py"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -39,11 +39,13 @@ the existing file watcher (`service.sync`) turned on.
 
 ## 3. Game versions
 
-Done in Phase 1 for local mode (`src/altarmy_profit/versions.py`); hosted mode adds the column below.
+Done in Phase 1 (`src/altarmy_profit/versions.py`); Phase 2 made `game_version` a column in the one
+schema local and hosted mode share.
 
-- `game_version` (`tbc` | `forever`) is a parameter on every per-game API route. In local mode each
-  version has its own SQLite file (`data/altarmy-profit-<version>.db`); in hosted mode it becomes a column
-  on every game-data and price table, and Phase 2's importer tags each local file's rows with it.
+- `game_version` (`tbc` | `forever`) is a parameter on every per-game API route and a column on every
+  game-data table and on local state (settings, characters, `ah_blocked`); price tables carry it through
+  their auction house. Local mode keeps both versions in `data/altarmy-profit.sqlite`; `legacy.py`
+  imports Phase 1's per-version files (`data/altarmy-profit-<version>.db`) into it once.
 - Ingest takes the wago.tools product: `tbc` -> `wow_anniversary` (2.5.6, Interface 20506),
   `forever` -> `wow_classic_beta` (1.60.x, Interface 16001). The pinned build is per version; the DB2
   table list is the same for both.
@@ -92,6 +94,21 @@ Users:
 - `rank_cache(key, uid, auction_house_id, price_version, params_hash, results jsonb, computed_at)`
 
 Money stays integer copper everywhere.
+
+Phase 2 status (done): `schema.py` holds the game data, local state and price tables above as SQLAlchemy
+Core tables, Alembic revision `0001` creates them, and the same pytest suite passes on SQLite and
+Postgres. Differences from the list above:
+
+- `price_snapshots.source` also allows `manual` (CLI `set-price`); `recipe_reagents` has a `slot` column
+  (DB2 reagent order, which the flow chart's choice paths depend on); `disenchant` has a surrogate id.
+- Until Phase 3, `settings(game_version, key, value)` stands in for `user_settings` (selection, addon
+  paths and mtimes, `data_version`), and characters and `ah_blocked` have no owner column.
+- A snapshot writes observations only for news (no current price, a later day, or a different price
+  seen no earlier), so an unchanged re-sync adds nothing; `item_count` records the scan's size.
+- `price_daily` is filled from Auctionator's per-day fields (`h`/`l`/`a`), not aggregated; `median` and
+  `price_current`'s 7-day columns stay NULL until the Phase 6 merge job.
+- Monthly partitioning of `price_observations` is Postgres-only and moves to Phase 5.
+- A realm name of `""` is the unnamed auction house that CLI prices use before any characters exist.
 
 ## 5. Auth and access tiers
 
@@ -173,12 +190,13 @@ Each phase ships on its own and local mode keeps working throughout.
    Auctionator realm keys, DB2 differences and `scripts/bench_rank.py` numbers.
 1. **Multi-version foundation** (done, local only). One SQLite file per version, per-version ingest
    product and build, per-version data files, AH cut and postage per version, UI version switch.
-2. **Storage layer.** SQLAlchemy Core plus Alembic, Postgres support, the snapshot/observation/current price
-   tables; local mode migrates its SQLite file.
+2. **Storage layer** (done). SQLAlchemy Core plus Alembic, Postgres support, the snapshot/observation/
+   current/daily price tables; local mode moved to one SQLite file and imports the per-version files.
 3. **Auth and tenancy.** Firebase anonymous sign-in and linking, `users`, per-user characters and settings,
    tiers and the required-level gate.
 4. **Uploaders.** Browser upload, CLI watcher, API keys.
-5. **Deploy.** Cloud Run, Cloud SQL, Firebase Hosting, scheduler jobs, CI.
+5. **Deploy.** Cloud Run, Cloud SQL, Firebase Hosting, scheduler jobs, deploy from CI; monthly partitions
+   for `price_observations`.
 6. **Pooling quality and performance.** Merge job, quarantine and trust, coverage page, rank cache and
    precompute if the benchmark demands it.
 7. **More sources and uploaders.** Blizzard API poller, AHDB parser, tray app, Alt Army paste export.
@@ -186,7 +204,8 @@ Each phase ships on its own and local mode keeps working throughout.
 ## 12. Verification per phase
 
 - `python scripts/check.py` green on SQLite for every phase.
-- From Phase 2, a Postgres CI job (Docker service) runs pytest with `DATABASE_URL` set.
+- From Phase 2, a Postgres CI job (`.github/workflows/check.yml`, a postgres:16 service) runs pytest
+  with `TEST_DATABASE_URL` set; locally, the same with any throwaway Postgres database.
 - Phase 0 and 6: benchmark numbers recorded in this file's changelog.
 - Phase 5: a staging Cloud Run deploy against a test Firebase project.
 - End-to-end, manual: an anonymous visit sees only prices for items with required level 30 and below; link the
@@ -197,7 +216,8 @@ Each phase ships on its own and local mode keeps working throughout.
 - Region is not part of the auction house key (decided: realm names are assumed unique across regions).
   If a future realm list breaks that, add `region` to the key and a realm directory to resolve it; until
   then the merge job only logs when one realm name arrives tagged with two regions.
-- Retention window for raw observations (plan: about 90 days).
+- Retention window for raw observations: decided in Phase 2, 90 days (`prices.KEEP_DAYS`, pruned at each
+  local sync; the hosted daily job will call the same `prices.prune`). `price_daily` is kept indefinitely.
 - Whether the TBC Anniversary realms will ever expose a Blizzard AH endpoint; the plan does not depend on it.
 
 ## 14. Phase 0 findings (2026-09-24)

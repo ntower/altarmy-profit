@@ -1,25 +1,75 @@
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
-from altarmy_profit import db
+import pytest
+from sqlalchemy import Connection, select
+
+from altarmy_profit import db, schema
+
+from .conftest import FOREVER
 
 
-def test_init_schema_adds_new_item_columns_to_an_old_database(tmp_path: Path) -> None:
-    conn = db.connect(tmp_path / "old.db")
-    conn.execute(
-        "CREATE TABLE items (id INTEGER PRIMARY KEY, name TEXT NOT NULL, quality INTEGER NOT NULL DEFAULT 1,"
-        " item_level INTEGER NOT NULL DEFAULT 0, required_level INTEGER NOT NULL DEFAULT 0,"
-        " class_id INTEGER NOT NULL DEFAULT 0, subclass_id INTEGER NOT NULL DEFAULT 0,"
-        " sell_price INTEGER NOT NULL DEFAULT 0, buy_price INTEGER NOT NULL DEFAULT 0,"
-        " bonding INTEGER NOT NULL DEFAULT 0)"
+def test_settings_roundtrip_per_version(conn: Connection) -> None:
+    assert db.get_setting(conn, FOREVER, "x") is None
+    db.set_setting(conn, FOREVER, "x", "1")
+    db.set_setting(conn, FOREVER, "x", "2")
+    assert db.get_setting(conn, FOREVER, "x") == "2"
+    assert db.get_setting(conn, "tbc", "x") is None
+
+
+def test_game_versions_are_registered_and_hold_the_build(conn: Connection) -> None:
+    rows = conn.execute(select(schema.game_versions).order_by(schema.game_versions.c.id)).all()
+    assert [(r.id, r.wago_product, r.interface, r.build) for r in rows] == [
+        ("forever", "wow_classic_beta", 16001, None),
+        ("tbc", "wow_anniversary", 20506, None),
+    ]
+    db.set_build(conn, "tbc", "2.5.6.1")
+    assert (db.get_build(conn, "tbc"), db.get_build(conn, FOREVER)) == ("2.5.6.1", None)
+
+
+def test_upsert_updates_ignores_or_filters(conn: Connection) -> None:
+    t = schema.vendor_items
+    keys = ["game_version", "item_id"]
+    db.upsert(conn, t, [{"game_version": FOREVER, "item_id": 1}], keys)  # nothing to update: ignored
+    db.upsert(
+        conn, t, [{"game_version": FOREVER, "item_id": 1}, {"game_version": FOREVER, "item_id": 2}], keys
     )
-    conn.execute("INSERT INTO items (id, name) VALUES (1, 'Linen Cloth')")
-    conn.commit()
+    db.upsert(conn, t, [], keys)
+    assert sorted(conn.execute(select(t.c.item_id)).scalars()) == [1, 2]
 
-    db.init_schema(conn)
-    db.init_schema(conn)  # idempotent
+    s = schema.settings
+    skeys = ["game_version", "key"]
+    db.upsert(conn, s, [{"game_version": FOREVER, "key": "k", "value": "5"}], skeys)
+    db.upsert(conn, s, [{"game_version": FOREVER, "key": "k", "value": "3"}], skeys, where=s.c.value < "4")
+    assert db.get_setting(conn, FOREVER, "k") == "5"  # the where clause kept the stored row
+    db.upsert(conn, s, [{"game_version": FOREVER, "key": "k", "value": "7"}], skeys, where=s.c.value < "6")
+    assert db.get_setting(conn, FOREVER, "k") == "7"
 
-    row = conn.execute("SELECT * FROM items").fetchone()
-    assert row["name"] == "Linen Cloth"
-    assert (row["inventory_type"], row["item_delay"], row["icon"], row["description"]) == (0, 0, None, None)
-    assert (row["buy_count"], row["stack_size"]) == (1, 1)
-    conn.close()
+
+def test_count_rows(conn: Connection) -> None:
+    assert db.count_rows(conn, "items", FOREVER) == 0
+    with pytest.raises(ValueError, match="countable"):
+        db.count_rows(conn, "settings", FOREVER)
+
+
+def test_timestamps() -> None:
+    naive = datetime(2026, 9, 24, 20, 53, 16, 123)
+    assert db.utc(naive) == naive.replace(tzinfo=UTC)
+    east = datetime(2026, 9, 24, 22, 0, tzinfo=timezone(timedelta(hours=2)))
+    assert db.utc(east) == datetime(2026, 9, 24, 20, 0, tzinfo=UTC)
+    assert db.timestamp_text(naive) == "2026-09-24 20:53:16"
+    assert db.timestamp_text(None) is None
+
+
+def test_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    assert db.default_url() == "sqlite:///data/altarmy-profit.sqlite"
+    assert db.default_url(tmp_path / "x.sqlite") == f"sqlite:///{(tmp_path / 'x.sqlite').as_posix()}"
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://me:secret@db.example/prices")
+    assert db.default_url() == "postgresql+psycopg://me:secret@db.example/prices"
+    hosted = db.Database(db.default_url())
+    assert not hosted.is_sqlite
+    assert "secret" not in hosted.display_url
+    local = db.Database(db.sqlite_url(tmp_path / "x.sqlite"))
+    assert local.display_url.endswith("x.sqlite")
+    assert not (tmp_path / "x.sqlite").exists()  # nothing touched until first use

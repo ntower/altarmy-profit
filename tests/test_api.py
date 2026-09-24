@@ -1,25 +1,29 @@
-import sqlite3
 import urllib.error
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import Connection
 
-from altarmy_profit import altarmy, db, ingest, prices, service, store
+from altarmy_profit import altarmy, db, ingest, prices, schema, service, store
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.api import create_app
 from altarmy_profit.versions import GameVersion
 
-from .conftest import SV_DIR
+from .conftest import FOREVER, SV_DIR, set_prices
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
 
 
 @pytest.fixture
-def client(tmp_path: Path, vendor_csv: Path, game_versions: dict[str, GameVersion]) -> TestClient:
-    """Asks about Forever (the `conn` fixture's database) unless a request passes another game_version."""
+def client(
+    tmp_path: Path, vendor_csv: Path, game_versions: dict[str, GameVersion], database: db.Database
+) -> TestClient:
+    """Asks about Forever unless a request passes another game_version; shares the `conn` fixture's
+    database."""
     app = create_app(
         game_versions,
+        database=database,
         cache_dir=tmp_path / "cache",
         static_dir=tmp_path / "nodist",
         wow_roots=[tmp_path / "World of Warcraft"],  # where the `wow_root` fixture puts one
@@ -29,37 +33,35 @@ def client(tmp_path: Path, vendor_csv: Path, game_versions: dict[str, GameVersio
     return c
 
 
-def with_tailor(conn: sqlite3.Connection) -> None:
+def with_tailor(conn: Connection) -> None:
     """Store the Alt Army test characters and select the realm/faction of the one who knows the robe."""
-    store.save_characters(conn, altarmy.parse_characters(ALTARMY_SV))
-    service.select(conn, "Classic Beta PvE", "Horde")
+    store.save_characters(conn, FOREVER, altarmy.parse_characters(ALTARMY_SV))
+    service.select(conn, FOREVER, "Classic Beta PvE", "Horde")
 
 
 @pytest.fixture
-def priced(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> sqlite3.Connection:
-    """The conftest DB (same file as the client's) with game data, prices linen=20, thread=100 and a
-    selected tailor who knows the Green Robe."""
-    ingest.build_db(db2_paths, conn)
-    prices.set_price(conn, 1, 20)
-    prices.set_price(conn, 2, 100)
-    conn.commit()
+def priced(db2_paths: dict[str, Path], conn: Connection) -> Connection:
+    """The client's database with game data, prices linen=20, thread=100 on Classic Beta PvE's auction
+    house and a selected tailor there who knows the Green Robe."""
+    ingest.build_db(db2_paths, conn, FOREVER)
+    set_prices(conn, {1: 20, 2: 100})
     with_tailor(conn)
     return conn
 
 
-def test_empty_db(client: TestClient) -> None:
+def test_empty_db(client: TestClient, database: db.Database) -> None:
     status = client.get("/api/status").json()
     assert status["recipes"] == 0
     assert status["build"] is None
     assert status["last_auctionator_import"] is None
-    assert status["db_path"].endswith("test.db")
+    assert status["db_path"] == database.display_url
     assert (status["characters"], status["selection"], status["data_version"]) == (0, None, 0)
     assert status["warnings"] == ["No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab."]
     assert client.get("/api/characters").json() == {"groups": [], "selection": None}
     assert client.get("/api/rank").json()["results"] == []
 
 
-def test_rank_known_recipes(client: TestClient, priced: sqlite3.Connection) -> None:
+def test_rank_known_recipes(client: TestClient, priced: Connection) -> None:
     body = client.get("/api/rank").json()
     (r,) = body["results"]
     assert r["recipe"] == "Green Robe"
@@ -93,11 +95,10 @@ def test_rank_known_recipes(client: TestClient, priced: sqlite3.Connection) -> N
 
 
 def test_rank_buys_reagents_from_vendors(
-    client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
+    client: TestClient, db2_paths: dict[str, Path], conn: Connection, vendor_csv: Path
 ) -> None:
-    ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)
-    prices.set_price(conn, 1, 20)  # thread has no AH price, but vendors sell it for 11c
-    conn.commit()
+    ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
+    set_prices(conn, {1: 20})  # thread has no AH price, but vendors sell it for 11c
     with_tailor(conn)
     body = client.get("/api/rank").json()
     (r,) = body["results"]
@@ -107,17 +108,33 @@ def test_rank_buys_reagents_from_vendors(
     assert (body["items"]["2"]["vendor_price"], body["items"]["1"]["vendor_price"]) == (11, None)
 
 
-def with_enchanter(conn: sqlite3.Connection) -> None:
+def with_enchanter(conn: Connection) -> None:
     """Add an enchanter (who can't tailor) to the tailor's realm/faction."""
     enchanter = Character(
         "Classic Beta PvE", "Enchy", "Horde", "PRIEST", 20, (Profession("Enchanting", 60, 75, frozenset()),)
     )
-    store.save_characters(conn, [*altarmy.parse_characters(ALTARMY_SV), enchanter])
+    store.save_characters(conn, FOREVER, [*altarmy.parse_characters(ALTARMY_SV), enchanter])
 
 
-def test_rank_sends_disenchant_materials(client: TestClient, priced: sqlite3.Connection) -> None:
-    priced.execute("INSERT INTO disenchant VALUES (4, 2, 0, 1000, 1, 0.5, 1, 3)")  # robe -> 1-3 linen
-    priced.commit()
+def add_disenchant(conn: Connection, chance: float, min_count: int, max_count: int) -> None:
+    """Green armor disenchants into linen."""
+    conn.execute(
+        schema.disenchant.insert().values(
+            game_version=FOREVER,
+            item_class=4,
+            quality=2,
+            min_ilvl=0,
+            max_ilvl=1000,
+            result_item_id=1,
+            chance=chance,
+            min_count=min_count,
+            max_count=max_count,
+        )
+    )
+
+
+def test_rank_sends_disenchant_materials(client: TestClient, priced: Connection) -> None:
+    add_disenchant(priced, 0.5, 1, 3)  # robe -> 1-3 linen
     with_enchanter(priced)
     body = client.get("/api/rank").json()
     (r,) = body["results"]
@@ -128,9 +145,8 @@ def test_rank_sends_disenchant_materials(client: TestClient, priced: sqlite3.Con
     assert all(e["materials"] == [] for e in r["exits"] if e["kind"] != "disenchant")
 
 
-def test_rank_mails_disenchants_to_an_enchanter(client: TestClient, priced: sqlite3.Connection) -> None:
-    priced.execute("INSERT INTO disenchant VALUES (4, 2, 0, 1000, 1, 1.0, 100, 100)")  # robe -> 100 linen
-    priced.commit()
+def test_rank_mails_disenchants_to_an_enchanter(client: TestClient, priced: Connection) -> None:
+    add_disenchant(priced, 1.0, 100, 100)  # robe -> 100 linen
     (r,) = client.get("/api/rank").json()["results"]
     assert r["best_exit"] == "vendor"  # nobody on the realm can disenchant
 
@@ -146,7 +162,7 @@ def test_rank_mails_disenchants_to_an_enchanter(client: TestClient, priced: sqli
     ]
 
 
-def test_rank_sends_reagents_and_item_details(client: TestClient, priced: sqlite3.Connection) -> None:
+def test_rank_sends_reagents_and_item_details(client: TestClient, priced: Connection) -> None:
     body = client.get("/api/rank").json()
     (r,) = body["results"]
     assert r["reagents"] == [{"item_id": 1, "count": 10}, {"item_id": 2, "count": 1}]
@@ -175,12 +191,10 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: sqlite
 
 
 def test_rank_lists_options_and_evaluate_applies_choices(
-    client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
+    client: TestClient, db2_paths: dict[str, Path], conn: Connection, vendor_csv: Path
 ) -> None:
-    ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)
-    prices.set_price(conn, 1, 20)
-    prices.set_price(conn, 2, 100)  # vendors sell thread for 11c
-    conn.commit()
+    ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)
+    set_prices(conn, {1: 20, 2: 100})  # vendors sell thread for 11c
     with_tailor(conn)
     (r,) = client.get("/api/rank").json()["results"]
     assert r["tree"]["options"] == []
@@ -199,9 +213,8 @@ def test_rank_lists_options_and_evaluate_applies_choices(
     assert client.post("/api/evaluate", json=only_ah).status_code == 404
 
 
-def test_ah_blocked_items_are_never_sold_on_the_ah(client: TestClient, priced: sqlite3.Connection) -> None:
-    prices.set_price(priced, 3, 1000)  # the robe sells for 950 on the AH, 500 at a vendor
-    priced.commit()
+def test_ah_blocked_items_are_never_sold_on_the_ah(client: TestClient, priced: Connection) -> None:
+    set_prices(priced, {3: 1000})  # the robe sells for 950 on the AH, 500 at a vendor
     assert client.get("/api/ah-blocked").json() == {"items": [], "details": {}}
     (r,) = client.get("/api/rank").json()["results"]
     assert r["best_exit"] == "ah"
@@ -222,7 +235,7 @@ def test_ah_blocked_items_are_never_sold_on_the_ah(client: TestClient, priced: s
     assert r["best_exit"] == "ah"
 
 
-def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connection) -> None:
+def test_rank_filters_and_validation(client: TestClient, priced: Connection) -> None:
     def total(**params: str | int | float | list[str]) -> int:
         body = client.get("/api/rank", params=params).json()
         assert len(body["results"]) == body["total"]
@@ -241,18 +254,16 @@ def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connect
     assert total(exits=["vendor"]) == 1
     assert client.get("/api/rank", params={"exits": "trade"}).status_code == 422
     assert client.get("/api/rank", params={"top": 0}).status_code == 422
-    service.select(priced, "Dreamscythe", "Horde")  # cooks only
+    service.select(priced, FOREVER, "Dreamscythe", "Horde")  # cooks only
     assert total() == 0
 
 
 def test_update_game_data_invalidates_cache(
-    client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, db2_paths: dict[str, Path], conn: Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.1")
     monkeypatch.setattr(ingest, "download_all", lambda build, cache_dir: db2_paths)
-    prices.set_price(conn, 1, 20)
-    prices.set_price(conn, 2, 100)
-    conn.commit()
+    set_prices(conn, {1: 20, 2: 100})
     with_tailor(conn)
     assert client.get("/api/rank").json()["results"] == []  # prime the cache: no recipes yet
 
@@ -303,29 +314,31 @@ def test_update_game_data_network_error(client: TestClient, monkeypatch: pytest.
 
 
 def test_auctionator_files_default(
-    client: TestClient, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, conn: Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     files = [Path(r"W\_classic_\A.lua"), Path(r"W\_classic_beta_\A.lua")]
     monkeypatch.setattr(prices, "find_auctionator_files", lambda roots, flavors: files)
     body = client.get("/api/auctionator/files").json()
     assert body == {"files": [str(f) for f in files], "default": str(files[0])}
-    db.set_meta(conn, "auctionator_path", str(files[1]))
+    db.set_setting(conn, FOREVER, "auctionator_path", str(files[1]))
     assert client.get("/api/auctionator/files").json()["default"] == str(files[1])
 
 
-def test_rank_include_unlearned(client: TestClient, priced: sqlite3.Connection) -> None:
+def test_rank_include_unlearned(client: TestClient, priced: Connection) -> None:
     novice = Character("Realm", "Novice", "Horde", "MAGE", 5, (Profession("Tailoring", 1, 75, frozenset()),))
-    store.save_characters(priced, [novice])
+    store.save_characters(priced, FOREVER, [novice])
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     assert client.get("/api/rank").json()["results"] == []
     (r,) = client.get("/api/rank", params={"include_unlearned": True}).json()["results"]
     assert (r["recipe"], r["crafters"]) == ("Green Robe", [])
 
 
-def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: sqlite3.Connection) -> None:
+def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: Connection) -> None:
     veteran = Character(
         "Realm", "Veteran", "Horde", "MAGE", 60, (Profession("Tailoring", 60, 150, frozenset({900})),)
     )
-    store.save_characters(priced, [veteran])  # the robe is grey from 60
+    store.save_characters(priced, FOREVER, [veteran])  # the robe is grey from 60
+    set_prices(priced, {1: 20, 2: 100}, realm="Realm")
     (r,) = client.get("/api/rank").json()["results"]
     grey = client.get("/api/rank", params={"include_trivial": False}).json()
     assert (grey["results"], grey["total"]) == ([], 0)
@@ -335,9 +348,9 @@ def test_rank_and_evaluate_without_trivial_recipes(client: TestClient, priced: s
 
 
 def test_status_syncs_addon_files_and_selection_switches_realm(
-    client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, wow_root: Path
+    client: TestClient, db2_paths: dict[str, Path], conn: Connection, wow_root: Path
 ) -> None:
-    ingest.build_db(db2_paths, conn)
+    ingest.build_db(db2_paths, conn, FOREVER)
     status = client.get("/api/status").json()
     assert status["altarmy_path"] == str(wow_root / SV_DIR / "AltArmy_TBC.lua")
     assert status["auctionator_path"] == str(wow_root / SV_DIR / "Auctionator.lua")
@@ -379,7 +392,7 @@ def test_status_syncs_addon_files_and_selection_switches_realm(
     assert res.status_code == 400
 
 
-def test_sources_and_sync_now(client: TestClient, conn: sqlite3.Connection, wow_root: Path) -> None:
+def test_sources_and_sync_now(client: TestClient, conn: Connection, wow_root: Path) -> None:
     assert client.get("/api/status").json()["characters"] == 4
     missing = client.put("/api/sources", json={"altarmy_path": str(wow_root / "missing.lua")})
     assert missing.status_code == 404
@@ -389,7 +402,7 @@ def test_sources_and_sync_now(client: TestClient, conn: sqlite3.Connection, wow_
     status = client.put("/api/sources", json={"altarmy_path": str(other)}).json()
     assert status["altarmy_path"] == str(other)
     assert status["data_version"] == 2
-    assert "Newbie Two" in [c.name for c in store.load_characters(conn)]
+    assert "Newbie Two" in [c.name for c in store.load_characters(conn, FOREVER)]
 
     assert client.post("/api/sync").json()["data_version"] == 3  # forced, even though nothing changed
 
@@ -398,31 +411,32 @@ def test_sources_and_sync_now(client: TestClient, conn: sqlite3.Connection, wow_
     assert warnings == ["Auctionator has no prices for Dreamscythe (Horde). Scan that auction house in game."]
 
 
-def test_altarmy_files(client: TestClient, conn: sqlite3.Connection, wow_root: Path) -> None:
+def test_altarmy_files(client: TestClient, conn: Connection, wow_root: Path) -> None:
     found = str(wow_root / SV_DIR / "AltArmy_TBC.lua")
     assert client.get("/api/altarmy/files").json() == {"files": [found], "default": found}
-    db.set_meta(conn, "altarmy_path", r"C:\elsewhere\AltArmy_TBC.lua")
+    db.set_setting(conn, FOREVER, "altarmy_path", r"C:\elsewhere\AltArmy_TBC.lua")
     assert client.get("/api/altarmy/files").json()["default"] == r"C:\elsewhere\AltArmy_TBC.lua"
 
 
-def test_reload_rereads_database(client: TestClient, priced: sqlite3.Connection) -> None:
+def test_reload_rereads_database(client: TestClient, priced: Connection) -> None:
     def profit() -> int:
         (r,) = client.get("/api/rank").json()["results"]
         return int(r["profit"])
 
     assert profit() == 200
-    prices.set_price(priced, 2, 50)
-    priced.commit()
+    set_prices(priced, {2: 50})
     assert profit() == 200  # cached
     assert client.post("/api/reload").json()["prices"] == 2
     assert profit() == 250
 
 
-def test_serves_built_frontend(tmp_path: Path, game_versions: dict[str, GameVersion]) -> None:
+def test_serves_built_frontend(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
+) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<html>altarmy-profit</html>")
-    client = TestClient(create_app(game_versions, static_dir=dist, wow_roots=()))
+    client = TestClient(create_app(game_versions, database=database, static_dir=dist, wow_roots=()))
     assert "altarmy-profit" in client.get("/").text
     assert client.get("/api/status", params={"game_version": "tbc"}).json()["recipes"] == 0
 
@@ -439,14 +453,15 @@ def test_routes_need_a_known_game_version(client: TestClient) -> None:
     assert client.get("/api/status", params={"game_version": "retail"}).status_code == 422
 
 
-def test_each_game_version_has_its_own_database(
-    client: TestClient, priced: sqlite3.Connection, tmp_path: Path, wow_root: Path
+def test_each_game_version_has_its_own_data(
+    client: TestClient, priced: Connection, tmp_path: Path, wow_root: Path
 ) -> None:
     assert len(client.get("/api/rank").json()["results"]) == 1  # Forever: the tailor's robe
+    client.put("/api/ah-blocked/3")
     tbc = {"game_version": "tbc"}
     status = client.get("/api/status", params=tbc).json()
-    assert status["db_path"].endswith("tbc.db")
-    assert (status["recipes"], status["prices"]) == (0, 0)
+    assert (status["recipes"], status["prices"], status["characters"]) == (0, 0, 0)
+    assert client.get("/api/ah-blocked", params=tbc).json()["items"] == []
     assert client.get("/api/rank", params=tbc).json()["results"] == []
     assert client.get("/api/altarmy/files", params=tbc).json() == {"files": [], "default": None}
     assert client.get("/api/versions").json() == [

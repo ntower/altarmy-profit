@@ -260,7 +260,7 @@ export interface paths {
         };
         /**
          * Get Versions
-         * @description The game versions served, each with the build its database holds.
+         * @description The game versions served, each with the build its data comes from.
          */
         get: operations["get_versions_api_versions_get"];
         put?: never;

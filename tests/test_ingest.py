@@ -1,20 +1,30 @@
 import json
-import sqlite3
 from pathlib import Path
 
 import pytest
+from sqlalchemy import Connection, func, select
+from sqlalchemy.engine import Row
 
-from altarmy_profit import db, ingest
+from altarmy_profit import db, ingest, prices, schema, store
 
-from .conftest import write_csv
+from .conftest import FOREVER, set_prices, write_csv
 
 
-def test_build_db_loads_items_and_recipes(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
-    stats = ingest.build_db(db2_paths, conn)
+def item(conn: Connection, item_id: int, game_version: str = FOREVER) -> Row[tuple[object, ...]]:
+    t = schema.items
+    return conn.execute(select(t).where(t.c.game_version == game_version, t.c.id == item_id)).one()
+
+
+def count(conn: Connection, table: str) -> int:
+    return int(conn.execute(select(func.count()).select_from(schema.metadata.tables[table])).scalar_one())
+
+
+def test_build_db_loads_items_and_recipes(db2_paths: dict[str, Path], conn: Connection) -> None:
+    stats = ingest.build_db(db2_paths, conn, FOREVER)
     assert stats == {"items": 3, "recipes": 1, "disenchant_rows": 0, "vendor_items": 0}
 
-    robe = conn.execute("SELECT * FROM items WHERE id = 3").fetchone()
-    assert (robe["name"], robe["quality"], robe["item_level"], robe["class_id"], robe["sell_price"]) == (
+    robe = item(conn, 3)
+    assert (robe.name, robe.quality, robe.item_level, robe.class_id, robe.sell_price) == (
         "Green Robe",
         2,
         20,
@@ -22,22 +32,23 @@ def test_build_db_loads_items_and_recipes(db2_paths: dict[str, Path], conn: sqli
         500,
     )
 
-    recipe = conn.execute("SELECT * FROM recipes").fetchone()
-    assert (recipe["id"], recipe["name"], recipe["skill_name"], recipe["output_item_id"]) == (
+    recipe = conn.execute(select(schema.recipes)).one()
+    assert (recipe.id, recipe.name, recipe.skill_name, recipe.output_item_id) == (
         100,
         "Green Robe",
         "Tailoring",
         3,
     )
-    assert recipe["min_skill"] == 25 and recipe["output_count"] == 1
+    assert recipe.min_skill == 25 and recipe.output_count == 1
 
-    reagents = {r["item_id"]: r["count"] for r in conn.execute("SELECT * FROM recipe_reagents")}
-    assert reagents == {1: 10, 2: 1}
+    rr = schema.recipe_reagents
+    reagents = [tuple(r) for r in conn.execute(select(rr.c.slot, rr.c.item_id, rr.c.count))]
+    assert sorted(reagents) == [(0, 1, 10), (1, 2, 1)]
 
 
-def test_build_db_loads_tooltip_fields(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
-    ingest.build_db(db2_paths, conn)
-    robe = conn.execute("SELECT * FROM items WHERE id = 3").fetchone()
+def test_build_db_loads_tooltip_fields(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ingest.build_db(db2_paths, conn, FOREVER)
+    robe = item(conn, 3)._mapping
     assert {k: robe[k] for k in TOOLTIP_COLUMNS} == {
         "bonding": 2,
         "required_level": 12,
@@ -50,12 +61,9 @@ def test_build_db_loads_tooltip_fields(db2_paths: dict[str, Path], conn: sqlite3
         "description": "Soft and green.",
         "icon": "inv_chest_cloth_39",
     }
-    icons = dict(conn.execute("SELECT id, icon FROM items WHERE id IN (1, 2)").fetchall())
-    assert icons == {1: "inv_fabric_linen_01", 2: None}  # 2's icon file is not in the manifest
-    linen = conn.execute(
-        "SELECT subclass_name, required_skill, description FROM items WHERE id = 1"
-    ).fetchone()
-    assert tuple(linen) == (None, None, None)
+    assert (item(conn, 1).icon, item(conn, 2).icon) == ("inv_fabric_linen_01", None)  # 2: not in the manifest
+    linen = item(conn, 1)
+    assert (linen.subclass_name, linen.required_skill, linen.description) == (None, None, None)
 
 
 TOOLTIP_COLUMNS = {
@@ -72,17 +80,17 @@ TOOLTIP_COLUMNS = {
 }
 
 
-def test_build_db_preserves_prices(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
-    conn.execute("INSERT INTO prices(item_id, price) VALUES (1, 45)")
-    ingest.build_db(db2_paths, conn)
-    ingest.build_db(db2_paths, conn)  # idempotent rebuild
-    assert conn.execute("SELECT price FROM prices WHERE item_id = 1").fetchone()["price"] == 45
-    assert conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0] == 1
+def test_build_db_preserves_prices_and_other_versions(db2_paths: dict[str, Path], conn: Connection) -> None:
+    ah = set_prices(conn, {1: 45})
+    ingest.build_db(db2_paths, conn, "tbc")
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ingest.build_db(db2_paths, conn, FOREVER)  # idempotent rebuild
+    assert prices.load_current(conn, ah) == {1: 45}
+    assert count(conn, "recipes") == 2  # one per version
+    assert store.load_market(conn, "tbc", None).items.keys() == {1, 2, 3}
 
 
-def test_build_db_loads_disenchant_csv(
-    db2_paths: dict[str, Path], conn: sqlite3.Connection, tmp_path: Path
-) -> None:
+def test_build_db_loads_disenchant_csv(db2_paths: dict[str, Path], conn: Connection, tmp_path: Path) -> None:
     de = write_csv(
         tmp_path / "de.csv",
         [
@@ -108,18 +116,18 @@ def test_build_db_loads_disenchant_csv(
             }
         ],
     )
-    assert ingest.build_db(db2_paths, conn, de)["disenchant_rows"] == 1
+    assert ingest.build_db(db2_paths, conn, FOREVER, de)["disenchant_rows"] == 1
+    ((row),) = store.load_market(conn, FOREVER, None).disenchant
+    assert (row.result_item_id, row.chance, row.max_count) == (9, 0.75, 2)
 
 
-def test_build_db_loads_vendor_items(
-    db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
-) -> None:
-    assert ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)["vendor_items"] == 2
-    assert [r[0] for r in conn.execute("SELECT item_id FROM vendor_items")] == [2, 99]
-    thread = conn.execute("SELECT buy_price, buy_count FROM items WHERE id = 2").fetchone()
-    assert tuple(thread) == (51, 5)
-    ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)  # rebuild replaces, not appends
-    assert conn.execute("SELECT COUNT(*) FROM vendor_items").fetchone()[0] == 2
+def test_build_db_loads_vendor_items(db2_paths: dict[str, Path], conn: Connection, vendor_csv: Path) -> None:
+    assert ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)["vendor_items"] == 2
+    assert sorted(conn.execute(select(schema.vendor_items.c.item_id)).scalars()) == [2, 99]
+    thread = item(conn, 2)
+    assert (thread.buy_price, thread.buy_count) == (51, 5)
+    ingest.build_db(db2_paths, conn, FOREVER, vendor_csv=vendor_csv)  # rebuild replaces, not appends
+    assert count(conn, "vendor_items") == 2
 
 
 def test_int_parsing_is_forgiving() -> None:
@@ -144,7 +152,7 @@ def test_parse_latest_build_picks_product() -> None:
 
 
 def test_update_downloads_builds_and_records_build(
-    db2_paths: dict[str, Path], conn: sqlite3.Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    db2_paths: dict[str, Path], conn: Connection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[tuple[str, Path]] = []
 
@@ -153,10 +161,10 @@ def test_update_downloads_builds_and_records_build(
         return db2_paths
 
     monkeypatch.setattr(ingest, "download_all", fake_download_all)
-    stats = ingest.update(conn, "1.2.3.4", tmp_path / "cache")
+    stats = ingest.update(conn, FOREVER, "1.2.3.4", tmp_path / "cache")
     assert calls == [("1.2.3.4", tmp_path / "cache")]
     assert stats["recipes"] == 1
-    assert db.get_meta(conn, "build") == "1.2.3.4"
+    assert db.get_build(conn, FOREVER) == "1.2.3.4"
 
 
 @pytest.mark.parametrize(
@@ -181,7 +189,7 @@ def test_output_count_from_either_clients_spell_effect(row: dict[str, str], coun
     assert ingest.output_count(row) == count
 
 
-def test_build_db_reads_tbc_style_output_counts(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
+def test_build_db_reads_tbc_style_output_counts(db2_paths: dict[str, Path], conn: Connection) -> None:
     write_csv(
         db2_paths["SpellEffect"],
         [
@@ -205,5 +213,5 @@ def test_build_db_reads_tbc_style_output_counts(db2_paths: dict[str, Path], conn
             }
         ],
     )
-    ingest.build_db(db2_paths, conn)
-    assert conn.execute("SELECT output_count FROM recipes").fetchone()[0] == 3
+    ingest.build_db(db2_paths, conn, FOREVER)
+    assert conn.execute(select(schema.recipes.c.output_count)).scalar_one() == 3

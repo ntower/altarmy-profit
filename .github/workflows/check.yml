@@ -1,0 +1,50 @@
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    # Everything scripts/check.py runs, on SQLite: lint, types, pytest, OpenAPI/TS types, front end.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: python -m pip install -e ".[dev,ui]"
+      - run: npm ci
+      - run: npm ci
+        working-directory: frontend
+      - run: python scripts/check.py
+
+  postgres:
+    # The same pytest suite against Postgres (tests/conftest.py reads TEST_DATABASE_URL).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: altarmy
+          POSTGRES_PASSWORD: altarmy
+          POSTGRES_DB: altarmy_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U altarmy"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql+psycopg://altarmy:altarmy@localhost:5432/altarmy_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev,ui,postgres]"
+      - run: python -m pytest -q

@@ -1,172 +1,218 @@
-"""SQLite schema and helpers. All money values are integer copper."""
+"""The database: an engine factory over SQLite (local mode, tests) or Postgres (hosted), plus small helpers.
+
+Queries use SQLAlchemy Core against the tables in `schema.py`; Alembic (`migrations/`) keeps the schema
+current. Functions taking a `Connection` never commit: the caller owns the transaction (`Database.begin`).
+All money values are integer copper.
+"""
 
 from __future__ import annotations
 
-import sqlite3
+import os
+import threading
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
-# The single database used before each game version got its own file (versions.GameVersion.db_path).
-LEGACY_DB = Path("data/altarmy-profit.db")
+from sqlalchemy import Connection, Engine, Table, create_engine, event, func, select
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine import make_url
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS items (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    quality INTEGER NOT NULL DEFAULT 1,      -- 0 poor, 1 common, 2 uncommon (green), 3 rare, 4 epic
-    item_level INTEGER NOT NULL DEFAULT 0,
-    required_level INTEGER NOT NULL DEFAULT 0,
-    class_id INTEGER NOT NULL DEFAULT 0,     -- 2 weapon, 4 armor, ...
-    subclass_id INTEGER NOT NULL DEFAULT 0,
-    sell_price INTEGER NOT NULL DEFAULT 0,   -- vendor buys from you
-    buy_price INTEGER NOT NULL DEFAULT 0,    -- vendor price per buy_count units (only if a vendor sells it)
-    bonding INTEGER NOT NULL DEFAULT 0,      -- 1 on pickup, 2 on equip, 3 on use, 4 quest item
-    -- tooltip-only fields (see ITEM_COLUMNS for databases created before they existed)
-    inventory_type INTEGER NOT NULL DEFAULT 0, -- equip slot: 5 chest, 13 one-hand, 16 back, ...
-    item_delay INTEGER NOT NULL DEFAULT 0,   -- weapon speed, ms
-    container_slots INTEGER NOT NULL DEFAULT 0,
-    subclass_name TEXT,                      -- ItemSubClass display name, e.g. Cloth, Sword
-    required_skill TEXT,                     -- skill line name, e.g. Engineering
-    required_skill_rank INTEGER NOT NULL DEFAULT 0,
-    description TEXT,                        -- flavor text
-    icon TEXT,                               -- icon file name, lowercase, without extension
-    buy_count INTEGER NOT NULL DEFAULT 1,    -- vendors sell stacks of this many for buy_price
-    stack_size INTEGER NOT NULL DEFAULT 1    -- units per stack (one mail attachment)
-);
-CREATE INDEX IF NOT EXISTS items_name ON items(name);
+from . import schema, versions
 
-CREATE TABLE IF NOT EXISTS recipes (
-    id INTEGER PRIMARY KEY,                  -- SkillLineAbility.ID
-    spell_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    skill_line INTEGER NOT NULL,
-    skill_name TEXT NOT NULL,
-    min_skill INTEGER NOT NULL DEFAULT 0,
-    trivial_low INTEGER NOT NULL DEFAULT 0,  -- yellow -> green threshold
-    trivial_high INTEGER NOT NULL DEFAULT 0, -- green -> grey threshold
-    output_item_id INTEGER NOT NULL,
-    output_count INTEGER NOT NULL DEFAULT 1
-);
-CREATE INDEX IF NOT EXISTS recipes_output ON recipes(output_item_id);
-
-CREATE TABLE IF NOT EXISTS recipe_reagents (
-    recipe_id INTEGER NOT NULL REFERENCES recipes(id),
-    item_id INTEGER NOT NULL,
-    count INTEGER NOT NULL,
-    PRIMARY KEY (recipe_id, item_id)
-);
-
--- Disenchant results are server-side loot data, NOT in DB2. Seeded from data/<version>/disenchant.csv.
-CREATE TABLE IF NOT EXISTS disenchant (
-    item_class INTEGER NOT NULL,
-    quality INTEGER NOT NULL,
-    min_ilvl INTEGER NOT NULL,
-    max_ilvl INTEGER NOT NULL,
-    result_item_id INTEGER NOT NULL,
-    chance REAL NOT NULL,                    -- 0..1 per disenchant
-    min_count INTEGER NOT NULL,
-    max_count INTEGER NOT NULL
-);
-
--- Which items vendors sell (unlimited stock) is server-side data, NOT in DB2. Seeded from
--- data/<version>/vendor_items.csv (scripts/build_vendor_items.py); the price is items.buy_price / buy_count.
-CREATE TABLE IF NOT EXISTS vendor_items (item_id INTEGER PRIMARY KEY);
-
-CREATE TABLE IF NOT EXISTS prices (
-    item_id INTEGER PRIMARY KEY,
-    price INTEGER NOT NULL,                  -- copper, per single item
-    source TEXT NOT NULL DEFAULT 'manual',   -- manual | csv | auctionator | vendor
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
--- Items the user never wants sold on the AH (only vendor or disenchant). Ingest leaves them alone.
-CREATE TABLE IF NOT EXISTS ah_blocked (
-    item_id INTEGER PRIMARY KEY,
-    added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
-
--- Characters from the Alt Army addon's SavedVariables, replaced wholesale on every import. Ingest leaves
--- them alone.
-CREATE TABLE IF NOT EXISTS characters (
-    id INTEGER PRIMARY KEY,
-    realm TEXT NOT NULL,
-    name TEXT NOT NULL,
-    faction TEXT NOT NULL,                   -- Horde | Alliance | "" (never scanned)
-    class_file TEXT NOT NULL,                -- e.g. PALADIN
-    level INTEGER NOT NULL,
-    UNIQUE (realm, name)
-);
-
-CREATE TABLE IF NOT EXISTS character_professions (
-    character_id INTEGER NOT NULL REFERENCES characters(id),
-    skill_name TEXT NOT NULL,
-    rank INTEGER NOT NULL,
-    max_rank INTEGER NOT NULL,
-    PRIMARY KEY (character_id, skill_name)
-);
-
-CREATE TABLE IF NOT EXISTS character_recipes (
-    character_id INTEGER NOT NULL REFERENCES characters(id),
-    skill_name TEXT NOT NULL,
-    spell_id INTEGER NOT NULL,               -- matches recipes.spell_id
-    PRIMARY KEY (character_id, skill_name, spell_id)
-);
-"""
+DEFAULT_DB = Path("data/altarmy-profit.sqlite")
 
 
-def connect(path: Path | str) -> sqlite3.Connection:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
-    conn.row_factory = sqlite3.Row
-    return conn
+def sqlite_url(path: Path | str) -> str:
+    return f"sqlite:///{Path(path).as_posix()}"
 
 
-# Item columns added after the first release: name -> column definition for ALTER TABLE.
-ITEM_COLUMNS = {
-    "inventory_type": "INTEGER NOT NULL DEFAULT 0",
-    "item_delay": "INTEGER NOT NULL DEFAULT 0",
-    "container_slots": "INTEGER NOT NULL DEFAULT 0",
-    "subclass_name": "TEXT",
-    "required_skill": "TEXT",
-    "required_skill_rank": "INTEGER NOT NULL DEFAULT 0",
-    "description": "TEXT",
-    "icon": "TEXT",
-    "buy_count": "INTEGER NOT NULL DEFAULT 1",
-    "stack_size": "INTEGER NOT NULL DEFAULT 1",
-}
+def default_url(db: Path | str | None = None) -> str:
+    """`DATABASE_URL` if set, else the SQLite file `db` (default data/altarmy-profit.sqlite)."""
+    if db is not None:
+        return sqlite_url(db)
+    return os.environ.get("DATABASE_URL") or sqlite_url(DEFAULT_DB)
 
 
-def init_schema(conn: sqlite3.Connection) -> None:
-    conn.executescript(SCHEMA)
-    have = {r[1] for r in conn.execute("PRAGMA table_info(items)")}
-    for name, definition in ITEM_COLUMNS.items():
-        if name not in have:
-            conn.execute(f"ALTER TABLE items ADD COLUMN {name} {definition}")
-    conn.commit()
+def utcnow() -> datetime:
+    return datetime.now(UTC)
 
 
-def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
-    return None if row is None else str(row[0])
+def utc(dt: datetime) -> datetime:
+    """`dt` as an aware UTC datetime (SQLite hands timestamps back naive)."""
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
 
 
-def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, value))
-    conn.commit()
+def timestamp_text(dt: datetime | None) -> str | None:
+    """UTC as "YYYY-MM-DD HH:MM:SS", the format the API has always sent."""
+    return None if dt is None else utc(dt).strftime("%Y-%m-%d %H:%M:%S")
 
 
-COUNTED_TABLES = ("items", "recipes", "prices", "disenchant", "vendor_items", "characters")
+class Database:
+    """One engine per process, created on first use; the schema is migrated to the newest revision then.
+
+    Share one instance across threads and open a connection per request (`begin` or `connect`).
+    """
+
+    def __init__(self, url: str) -> None:
+        self.url = make_url(url)
+        self._engine: Engine | None = None
+        self._lock = threading.Lock()
+        self._ready = False
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.url.get_backend_name() == "sqlite"
+
+    @property
+    def display_url(self) -> str:
+        """The SQLite file, or the URL without its password."""
+        if self.is_sqlite:
+            return self.url.database or ":memory:"
+        return self.url.render_as_string(hide_password=True)
+
+    @property
+    def engine(self) -> Engine:
+        with self._lock:
+            if self._engine is None:
+                self._engine = self._create_engine()
+            return self._engine
+
+    def _create_engine(self) -> Engine:
+        if not self.is_sqlite:
+            return create_engine(self.url, pool_pre_ping=True)
+        if self.url.database:
+            Path(self.url.database).parent.mkdir(parents=True, exist_ok=True)
+        engine = create_engine(self.url, connect_args={"timeout": 30})
+
+        @event.listens_for(engine, "connect")
+        def _pragmas(dbapi_conn: Any, _record: object) -> None:
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.close()
+
+        return engine
+
+    def ensure_schema(self) -> None:
+        """Migrate to the newest revision and register the game versions (once per instance)."""
+        if self._ready:
+            return
+        engine = self.engine
+        with self._lock:
+            if self._ready:
+                return
+            with engine.begin() as conn:
+                upgrade(conn)
+                register_versions(conn)
+            self._ready = True
+
+    def connect(self) -> Connection:
+        self.ensure_schema()
+        return self.engine.connect()
+
+    @contextmanager
+    def begin(self) -> Iterator[Connection]:
+        """A connection in a transaction, committed on success."""
+        self.ensure_schema()
+        with self.engine.begin() as conn:
+            yield conn
+
+    def dispose(self) -> None:
+        with self._lock:
+            if self._engine is not None:
+                self._engine.dispose()
+                self._engine = None
 
 
-def count_rows(conn: sqlite3.Connection, table: str) -> int:
+def alembic_config(conn: Connection | None = None) -> Any:
+    from alembic.config import Config
+
+    cfg = Config()
+    cfg.set_main_option("script_location", "altarmy_profit:migrations")
+    if conn is not None:
+        cfg.attributes["connection"] = conn
+    return cfg
+
+
+def upgrade(conn: Connection, revision: str = "head") -> None:
+    from alembic import command
+
+    command.upgrade(alembic_config(conn), revision)
+
+
+def register_versions(conn: Connection) -> None:
+    """A `game_versions` row for every known version (the build is left as ingest set it)."""
+    rows = [
+        {"id": v.key, "wago_product": v.wago_product, "interface": v.interface}
+        for v in versions.VERSIONS.values()
+    ]
+    upsert(conn, schema.game_versions, rows, ["id"])
+
+
+def upsert(
+    conn: Connection,
+    table: Table,
+    rows: Sequence[Mapping[str, object]],
+    keys: Sequence[str],
+    update: Sequence[str] | None = None,
+    where: Any = None,
+) -> None:
+    """Insert `rows`, updating `update` (default: every non-key column given) where `keys` collide.
+
+    An empty `update` ignores collisions. `where` limits which existing rows are updated; refer to the
+    incoming row as `excluded(table)`."""
+    if not rows:
+        return
+    insert = sqlite.insert if conn.dialect.name == "sqlite" else postgresql.insert
+    stmt = insert(table)
+    cols = [c for c in rows[0] if c not in keys] if update is None else list(update)
+    if cols:
+        stmt = stmt.on_conflict_do_update(
+            index_elements=list(keys), set_={c: stmt.excluded[c] for c in cols}, where=where
+        )
+    else:
+        stmt = stmt.on_conflict_do_nothing(index_elements=list(keys))
+    conn.execute(stmt, [dict(r) for r in rows])
+
+
+def get_setting(conn: Connection, game_version: str, key: str) -> str | None:
+    t = schema.settings
+    value = conn.execute(
+        select(t.c.value).where(t.c.game_version == game_version, t.c.key == key)
+    ).scalar_one_or_none()
+    return None if value is None else str(value)
+
+
+def set_setting(conn: Connection, game_version: str, key: str, value: str) -> None:
+    upsert(
+        conn,
+        schema.settings,
+        [{"game_version": game_version, "key": key, "value": value}],
+        ["game_version", "key"],
+    )
+
+
+def get_build(conn: Connection, game_version: str) -> str | None:
+    t = schema.game_versions
+    build = conn.execute(select(t.c.build).where(t.c.id == game_version)).scalar_one_or_none()
+    return None if build is None else str(build)
+
+
+def set_build(conn: Connection, game_version: str, build: str) -> None:
+    t = schema.game_versions
+    conn.execute(t.update().where(t.c.id == game_version).values(build=build))
+
+
+COUNTED_TABLES = ("items", "recipes", "disenchant", "vendor_items", "characters")
+
+
+def count_rows(conn: Connection, table: str, game_version: str) -> int:
+    """Rows of one version in a game-data table, or its characters."""
     if table not in COUNTED_TABLES:
         raise ValueError(f"not a countable table: {table}")
-    return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-
-
-def last_import(conn: sqlite3.Connection, source: str = "auctionator") -> str | None:
-    """UTC timestamp (SQLite CURRENT_TIMESTAMP text) of the newest price from `source`."""
-    row = conn.execute("SELECT MAX(updated_at) FROM prices WHERE source = ?", (source,)).fetchone()
-    return None if row[0] is None else str(row[0])
+    t = schema.metadata.tables[table]
+    return int(
+        conn.execute(select(func.count()).select_from(t).where(t.c.game_version == game_version)).scalar_one()
+    )

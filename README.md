@@ -1,10 +1,11 @@
 # altarmy-profit
 
 Local tool that finds profitable crafting recipes and production chains for **WoW: Forever** and
-**TBC Anniversary**, the two clients the Alt Army addon runs on. Each game version has its own database.
+**TBC Anniversary**, the two clients the Alt Army addon runs on. Both share one database.
 
-- Items and recipes come from the client's DB2 tables (via [wago.tools](https://wago.tools/) CSV exports) into a local SQLite file.
-- You supply auction house prices (CSV import for now).
+- Items and recipes come from the client's DB2 tables (via [wago.tools](https://wago.tools/) CSV exports) into a local SQLite file
+  (or Postgres, for the planned hosted app).
+- Auction house prices come from Auctionator's SavedVariables, a CSV or by hand, per auction house, with history.
 - The engine ranks recipes by profit: reagent cost (buy from a vendor or the AH, or craft an intermediate if cheaper) vs. the best of vendor sale, AH sale (minus the 5% cut) and expected disenchant value. Each craft is costed per character: a reagent is bought by the crafter, or crafted by whichever of your characters can make it and mailed over (30c postage per stack), whichever is cheapest. Disenchanting needs an enchanter among the selected characters; if the crafter doesn't enchant, the output is mailed to the highest-skilled enchanter.
 
 ## Setup
@@ -20,12 +21,21 @@ python scripts/check.py     # Python: ruff, mypy (strict), pytest. Front end: ox
 `python scripts/check.py --skip-frontend` runs only the Python steps. Individual tools: `ruff check . --fix`,
 `ruff format .`, `mypy`, `pytest`, and in `frontend/`: `npm run lint`, `npm test`, `npm run build`.
 
+Tests run on SQLite. To run them on Postgres too, point `TEST_DATABASE_URL` at a **throwaway** database
+(its `public` schema is dropped), e.g. with a local PostgreSQL install:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/altarmy_test"; pytest
+```
+
+GitHub Actions (`.github/workflows/check.yml`) runs `check.py` and the Postgres suite on every push.
+
 ## Usage
 
 ```powershell
-altarmy-profit ingest                          # downloads DB2 tables into cache/, builds data/altarmy-profit-forever.db
+altarmy-profit ingest                          # downloads DB2 tables into cache/, loads WoW: Forever's game data
 altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
-altarmy-profit --game-version tbc ingest       # TBC Anniversary instead: data/altarmy-profit-tbc.db
+altarmy-profit --game-version tbc ingest       # TBC Anniversary's instead
 altarmy-profit import-prices prices.csv        # columns: item_id (or name), price   (copper)
 altarmy-profit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\Auctionator.lua"
 altarmy-profit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\AltArmy_TBC.lua"
@@ -35,14 +45,25 @@ altarmy-profit ui                              # web UI on http://127.0.0.1:8600
 ```
 
 Every command takes `--game-version forever|tbc` (default `forever`) before the command name; it picks the
-database, the data files under `data/<version>/` and the wago.tools product (`wow_classic_beta` or
-`wow_anniversary`). `--db <file>` overrides the database. A database from before game versions
-(`data/altarmy-profit.db`) is renamed to its version's file the first time a command runs.
+game's data in the database, the data files under `data/<version>/` and the wago.tools product
+(`wow_classic_beta` or `wow_anniversary`).
+
+The database is `data/altarmy-profit.sqlite`; `--db <file>` picks another SQLite file and `DATABASE_URL`
+(a SQLAlchemy URL such as `postgresql+psycopg://user:pass@host/db`) another database. Its schema is
+migrated automatically (Alembic). The databases of earlier releases (`data/altarmy-profit-<version>.db`,
+and the older `data/altarmy-profit.db`) are imported into it the first time a command runs without
+`--db`, prices, characters and settings included, and kept renamed to `*.imported`.
 
 `import-auctionator` reads Auctionator's **account-wide** SavedVariables file (not the per-character
-one) and stores each item's latest minimum buyout. WoW writes SavedVariables on logout or `/reload`,
-so do one of those after scanning. Add `--realm "<name>"` if the file holds several realms (the error
-lists them). Items missing from a scan keep their previous price.
+one) and records the realm's scan for its auction house: each item's latest minimum buyout, plus
+Auctionator's per-day history (high, low and quantity available). WoW writes SavedVariables on logout
+or `/reload`, so do one of those after scanning. Add `--realm "<name>"` if the file holds several
+realms (the error lists them). Items missing from a scan keep their previous price.
+
+Prices belong to an auction house: a realm and faction (one shared by both factions where the auction
+house is, as on Forever). `import-prices` and `set-price` price the selected realm's auction house, or,
+before any characters are imported, an unnamed one. The newest price per item wins, whatever its
+source; older prices stay as history (see Data notes).
 
 `import-altarmy` reads the [Alt Army](../altarmy_tbc) addon's account-wide SavedVariables: your
 characters, their professions and the recipes they have learned. `rank` then only ranks what the
@@ -68,8 +89,8 @@ game. It has two tabs:
 The UI reads `AltArmy_TBC.lua` and `Auctionator.lua` itself: it finds them under the usual WoW install
 folders, in the chosen game's folder (`_classic_beta_` for Forever, `_anniversary_` for TBC; paste
 another path on Manage), and re-imports either one whenever
-WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator scan and replace
-the previous realm's.
+WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator scan; each
+auction house keeps its own, so switching realms back and forth loses nothing.
 
 ### Front-end development
 
@@ -89,7 +110,11 @@ Coarse Thread,120
 ## Data notes
 
 - Pinned builds: `default_build` per version in `src/altarmy_profit/versions.py`. Pass `--build <version>`
-  or `--build latest` for a newer one. The build actually loaded is stored in the `meta` table.
+  or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.
+- **Price history.** Every import is a snapshot (`price_snapshots`); it records observations only for
+  items whose price or last-seen day moved (`price_observations`, pruned after 90 days) and updates
+  `price_current`, which the ranking reads. Auctionator's per-day high/low/available go to `price_daily`,
+  which is kept indefinitely (Auctionator itself forgets old days).
 - **Disenchant results are not in DB2** (they are server-side loot tables). `data/<version>/disenchant.csv`
   (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds the rates.
   Forever's are Classic-era rates, derived from the brackets Auctionator uses for Classic clients, and
@@ -110,13 +135,16 @@ Coarse Thread,120
 
 ## Layout
 
-- `src/altarmy_profit/versions.py` – the game versions (TBC Anniversary, Forever): database, data files,
+- `src/altarmy_profit/versions.py` – the game versions (TBC Anniversary, Forever): data files,
   wago.tools product, WoW flavor folder, AH cut and postage
+- `src/altarmy_profit/db.py`, `schema.py`, `migrations/` – the database (SQLAlchemy Core, SQLite or
+  Postgres), its tables and Alembic migrations; `legacy.py` imports older releases' SQLite files
 - `src/altarmy_profit/ingest.py` – download + load DB2 CSVs
 - `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
-- `src/altarmy_profit/prices.py` – price sources (CSV, Auctionator SavedVariables via `auctionator.py`)
+- `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices)
+  and its sources (CSV, Auctionator SavedVariables via `auctionator.py`)
 - `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
-- `src/altarmy_profit/store.py` – load SQLite into engine dataclasses
+- `src/altarmy_profit/store.py` – load the database into engine dataclasses
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/altarmy_profit/cli.py` – command line
 - `src/altarmy_profit/vmangos.py`, `cmangos.py`, `disenchant_rates.py` – sources for the hand data files

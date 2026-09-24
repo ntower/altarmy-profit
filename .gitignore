@@ -4,6 +4,9 @@ __pycache__/
 .pytest_cache/
 cache/
 data/*.db
+data/*.sqlite
+data/*.sqlite-*
+data/*.imported
 .mypy_cache/
 .ruff_cache/
 node_modules/
