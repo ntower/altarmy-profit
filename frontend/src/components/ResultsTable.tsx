@@ -54,6 +54,20 @@ function sorted(results: RankResult[], sort: Sort | null): RankResult[] {
 const StepMoney = ({ value }: { value: number }) =>
   value < 0 ? <Money copper={-value} cost /> : <Money copper={value} signed />
 
+/** Money made, green or (a loss) red, without a sign. */
+const Earned = ({ copper }: { copper: number }) => (
+  <Text span inherit c={copper < 0 ? 'red' : 'teal'}>
+    <Money copper={Math.abs(copper)} />
+  </Text>
+)
+
+/** A sale's gross and the recipe's net profit. */
+const Sale = ({ gross, net }: { gross: number; net: number }) => (
+  <>
+    (Gross <Earned copper={gross} /> · Net <Earned copper={net} />)
+  </>
+)
+
 /** A step as one or more instruction lines, prefixed with who does it; disenchanting splits into disenchant,
  * then sell the mats. */
 function describe(step: Step, result: RankResult, items: ItemMap): ReactNode[] {
@@ -103,12 +117,13 @@ function describeAction(
             <DisenchantHover result={result} items={items}>
               Sell materials
             </DisenchantHover>{' '}
-            (<StepMoney value={value} />)
+            <Sale gross={value} net={result.profit} />
           </>,
         ]
       return [
         <>
-          Sell {quantity}x {item} {via === 'ah' ? 'on the AH' : 'to a vendor'} (<StepMoney value={value} />)
+          Sell {quantity}x {item} {via === 'ah' ? 'on the AH' : 'to a vendor'}{' '}
+          <Sale gross={value} net={result.profit} />
         </>,
       ]
   }
@@ -307,7 +322,7 @@ export function ResultsTable({
                       )}
                     </Table.Td>
                     <Table.Td c={r.profit < 0 ? 'red' : 'teal'} ff="monospace" ta="right">
-                      <Money copper={r.profit} />
+                      <Money copper={r.profit} padded />
                     </Table.Td>
                     <Table.Td>{formatRoi(r.roi)}</Table.Td>
                     <Table.Td>
@@ -326,14 +341,15 @@ export function ResultsTable({
                       />
                     </Table.Td>
                     <Table.Td>{r.profession}</Table.Td>
-                    <Table.Td>
+                    <Table.Td
+                      title={r.crafters.length > 1 ? byCrafter(r.crafters, r.crafter).join(', ') : undefined}
+                    >
                       {r.crafters.length ? (
-                        byCrafter(r.crafters, r.crafter).map((c, i) => (
-                          <Fragment key={c}>
-                            {i > 0 && ', '}
-                            <CharacterName name={c} />
-                          </Fragment>
-                        ))
+                        <>
+                          <CharacterName name={byCrafter(r.crafters, r.crafter)[0]} />
+                          {r.crafters.length > 1 &&
+                            ` (and ${r.crafters.length - 1} other${r.crafters.length > 2 ? 's' : ''})`}
+                        </>
                       ) : (
                         <Text span size="sm" c="dimmed">
                           not learned
@@ -341,10 +357,10 @@ export function ResultsTable({
                       )}
                     </Table.Td>
                     <Table.Td ff="monospace" ta="right">
-                      <Money copper={r.cost} cost />
+                      <Money copper={r.cost} cost padded />
                     </Table.Td>
                     <Table.Td c="teal" ff="monospace" ta="right">
-                      <Money copper={r.revenue} />
+                      <Money copper={r.revenue} padded />
                     </Table.Td>
                     <Table.Td>{r.best_exit}</Table.Td>
                     {onSetAhBlocked && (

@@ -20,26 +20,31 @@ describe('Money', () => {
     render(<Money copper={10003} />)
     expect(coins()).toEqual([
       ['gold', '1'],
-      ['silver', '_0'],
-      ['copper', '_3'],
+      ['silver', '0'],
+      ['copper', '3'],
     ])
   })
 
   it('shows zero as 0 copper', () => {
     const { container } = render(<Money copper={0} />)
-    expect(shown(container)).toBe('_0')
-    expect(coins()).toEqual([['copper', '_0']])
+    expect(shown(container)).toBe('0')
+    expect(coins()).toEqual([['copper', '0']])
   })
 
   it('prefixes losses with - and, when signed, gains with +', () => {
-    expect(shown(render(<Money copper={-250} />).container)).toBe('-_2 50')
-    expect(shown(render(<Money copper={250} signed />).container)).toBe('+_2 50')
-    expect(shown(render(<Money copper={0} signed />).container)).toBe('_0')
+    expect(shown(render(<Money copper={-250} />).container)).toBe('-2 50')
+    expect(shown(render(<Money copper={250} signed />).container)).toBe('+2 50')
+    expect(shown(render(<Money copper={0} signed />).container)).toBe('0')
+  })
+
+  it('pads single-digit silver and copper with a non-breaking space when padded', () => {
+    expect(shown(render(<Money copper={10003} padded />).container)).toBe('1 _0 _3')
+    expect(shown(render(<Money copper={1234567} padded />).container)).toBe('123 45')
   })
 
   it('shows a cost in red without a sign', () => {
     const { container } = render(<Money copper={250} cost />)
-    expect(shown(container)).toBe('_2 50')
+    expect(shown(container)).toBe('2 50')
     expect(container.firstElementChild).toHaveAttribute('data-cost')
   })
 })

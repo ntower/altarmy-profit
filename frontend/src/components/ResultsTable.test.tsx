@@ -55,11 +55,14 @@ const line = (text: string) =>
 /** A flow chart node line whose whole text is `text` (amounts inside are coin elements). */
 const detail = (text: string) => (_: string, el: Element | null) => el?.tagName === 'DIV' && shown(el) === text
 
-/** The colours of the gross and net amounts on the flow chart's sale line with text `text`. */
-const saleColors = (text: string) =>
-  Array.from(screen.getByText(detail(text)).querySelectorAll('[data-unit="silver"]'), (coin) =>
+/** The colours (teal, red) of the silver amounts in `el`, e.g. a sale's gross and net. */
+const silverColors = (el: HTMLElement) =>
+  Array.from(el.querySelectorAll('[data-unit="silver"]'), (coin) =>
     coin.closest<HTMLElement>('[style]')!.style.color.match(/--mantine-color-(\w+)-text/)?.[1],
   )
+
+/** The colours of the gross and net amounts on the flow chart's sale line with text `text`. */
+const saleColors = (text: string) => silverColors(screen.getByText(detail(text)))
 
 const showSteps = async (nth = 0) => await userEvent.click(screen.getAllByText('Steps')[nth])
 
@@ -83,20 +86,20 @@ describe('ResultsTable', () => {
   it('expands a row into a flow chart of the reagents, crafts and sale', async () => {
     renderWithProviders(<ResultsTable results={[robe]} items={items} />)
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
-    expect(screen.getByText(detail('Buy on the AH · _2 _0'))).toBeInTheDocument()
-    expect(screen.getByText(detail('Buy from a vendor · _1 _0'))).toBeInTheDocument()
+    expect(screen.getByText(detail('Buy on the AH · 2 0'))).toBeInTheDocument()
+    expect(screen.getByText(detail('Buy from a vendor · 1 0'))).toBeInTheDocument()
     expect(screen.getByText('Craft 1x Green Robe')).toBeInTheDocument()
     expect(screen.getByText('Sell to a vendor')).toBeInTheDocument()
     // flow chart item names truncate rather than push the quantity out of the box
     expect(screen.getByText('Linen Cloth').closest('[data-truncate]')).not.toBeNull()
-    expect(saleColors('Gross _5 _0 · Net _2 _0')).toEqual(['teal', 'teal'])
+    expect(saleColors('Gross 5 0 · Net 2 0')).toEqual(['teal', 'teal'])
     expect(screen.queryByText(/Purchase/)).not.toBeInTheDocument()
   })
 
   it('shows a loss on the sale as a red, negative net', async () => {
     renderWithProviders(<ResultsTable results={[{ ...robe, profit: -150 }]} items={items} />)
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
-    expect(saleColors('Gross _5 _0 · Net -_1 50')).toEqual(['teal', 'red'])
+    expect(saleColors('Gross 5 0 · Net -1 50')).toEqual(['teal', 'red'])
   })
 
   it('shows step-by-step instructions on the Steps tab', async () => {
@@ -106,10 +109,10 @@ describe('ResultsTable', () => {
     await userEvent.click(first)
     expect(first).toHaveAttribute('aria-expanded', 'true')
     await showSteps()
-    expect(line('Purchase 10x Linen Cloth on the AH (_2 _0)')).toBeInTheDocument()
-    expect(line('Purchase 1x Coarse Thread from a vendor (_1 _0)')).toBeInTheDocument()
+    expect(line('Purchase 10x Linen Cloth on the AH (2 0)')).toBeInTheDocument()
+    expect(line('Purchase 1x Coarse Thread from a vendor (1 0)')).toBeInTheDocument()
     expect(line('Craft 1x Green Robe')).toBeInTheDocument()
-    expect(line('Sell 1x Green Robe to a vendor (+_5 _0)')).toBeInTheDocument()
+    expect(line('Sell 1x Green Robe to a vendor (Gross 5 0 · Net 2 0)')).toBeInTheDocument()
 
     await userEvent.click(second)
     await showSteps(1)
@@ -117,7 +120,14 @@ describe('ResultsTable', () => {
     expect(line('Craft 2x Cured Medium Hide')).toBeInTheDocument()
     expect(line('Mail 1x Green Robe to Enchy (30)')).toBeInTheDocument()
     expect(line('Disenchant Green Robe')).toBeInTheDocument()
-    expect(line('Sell materials (+7 59 88)')).toBeInTheDocument()
+    expect(line('Sell materials (Gross 7 59 88 · Net 2 0)')).toBeInTheDocument()
+  })
+
+  it('colours the Steps sale by its sign, without + or -', async () => {
+    renderWithProviders(<ResultsTable results={[{ ...robe, profit: -150 }]} items={items} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
+    await showSteps()
+    expect(silverColors(line('Sell 1x Green Robe to a vendor (Gross 5 0 · Net 1 50)'))).toEqual(['teal', 'red'])
   })
 
   it('shows the expected disenchant materials on the Steps sell line', async () => {
@@ -151,24 +161,27 @@ describe('ResultsTable', () => {
     renderWithProviders(<ResultsTable results={[split]} items={items} />)
     await userEvent.click(screen.getByRole('button', { name: 'Details for Green Robe' }))
     await showSteps()
-    expect(line('Leathery: Purchase 6x Linen Cloth on the AH (_1 20)')).toBeInTheDocument()
+    expect(line('Leathery: Purchase 6x Linen Cloth on the AH (1 20)')).toBeInTheDocument()
     expect(line('Leathery: Craft 2x Coarse Thread')).toBeInTheDocument()
     expect(line('Leathery: Mail 2x Coarse Thread to Smithy (30)')).toBeInTheDocument()
     expect(line('Smithy: Craft 1x Green Robe')).toBeInTheDocument()
-    expect(line('Smithy: Sell 1x Green Robe to a vendor (+_5 _0)')).toBeInTheDocument()
+    expect(line('Smithy: Sell 1x Green Robe to a vendor (Gross 5 0 · Net 2 0)')).toBeInTheDocument()
   })
 
-  it('shows the chosen crafter first among those who know the recipe, in class colours', () => {
+  it('shows only the chosen crafter, in class colours, then how many others know the recipe', () => {
     renderWithProviders(
       <ResultsTable
-        results={[{ ...robe, crafters: ['Alice', 'Tailor Guy'] }]}
+        results={[
+          { ...robe, crafters: ['Alice', 'Tailor Guy'] },
+          { ...robe, recipe_id: 101, crafters: ['Alice', 'Bob', 'Tailor Guy'] },
+        ]}
         items={items}
         classes={{ 'Tailor Guy': 'MAGE', Alice: 'ROGUE' }}
       />,
     )
-    expect(line('Tailor Guy, Alice')).toBeInTheDocument()
-    expect(screen.getByText('Tailor Guy')).toHaveAttribute('data-class', 'MAGE')
-    expect(screen.getByText('Alice')).toHaveAttribute('data-class', 'ROGUE')
+    expect(line('Tailor Guy (and 1 other)')).toHaveAttribute('title', 'Tailor Guy, Alice')
+    expect(line('Tailor Guy (and 2 others)')).toHaveAttribute('title', 'Tailor Guy, Alice, Bob')
+    expect(screen.getAllByText('Tailor Guy')[0]).toHaveAttribute('data-class', 'MAGE')
   })
 
   it('puts the character on its own line in flow chart nodes', async () => {
@@ -279,8 +292,8 @@ describe('ResultsTable', () => {
       expect(screen.queryByRole('button', { name: 'Change source of Linen Cloth' })).not.toBeInTheDocument()
       await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
       expect(screen.getAllByRole('menuitem').map(shown)).toEqual([
-        '✓Buy from a vendor_1 _0',
-        'Buy on the AH_1 50',
+        '✓Buy from a vendor1 0',
+        'Buy on the AH1 50',
       ])
     })
 
@@ -288,8 +301,8 @@ describe('ResultsTable', () => {
       await open()
       await userEvent.click(screen.getByRole('button', { name: 'Change how it is sold' }))
       expect(screen.getAllByRole('menuitem').map(shown)).toEqual([
-        '✓Sell to a vendorprofit _2 _0',
-        'Sell on the AHprofit _1 75',
+        '✓Sell to a vendorprofit 2 0',
+        'Sell on the AHprofit 1 75',
       ])
       const amount = screen.getAllByRole('menuitem')[1]!.querySelector('[title="silver"]')!.closest('[style]')
       expect(amount).toHaveStyle({ color: 'var(--mantine-color-teal-text)' })
@@ -301,7 +314,7 @@ describe('ResultsTable', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Change source of Coarse Thread' }))
       await userEvent.click(screen.getByRole('menuitem', { name: /Buy on the AH/ }))
 
-      expect(await screen.findByText(detail('Buy on the AH · _1 50'))).toBeInTheDocument()
+      expect(await screen.findByText(detail('Buy on the AH · 1 50'))).toBeInTheDocument()
       const request = fetch.mock.calls[0]![0]
       expect([request.method, new URL(request.url).pathname]).toEqual(['POST', '/api/evaluate'])
       expect(await request.json()).toEqual({
@@ -314,7 +327,7 @@ describe('ResultsTable', () => {
       expect(screen.getByLabelText('Changed plan')).toBeInTheDocument()
 
       await userEvent.click(screen.getByRole('button', { name: 'Reset' }))
-      expect(screen.getByText(detail('Buy from a vendor · _1 _0'))).toBeInTheDocument()
+      expect(screen.getByText(detail('Buy from a vendor · 1 0'))).toBeInTheDocument()
       expect(line('_2 _0')).toBeInTheDocument()
       expect(screen.queryByLabelText('Changed plan')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Reset' })).not.toBeInTheDocument()

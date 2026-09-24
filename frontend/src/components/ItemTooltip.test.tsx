@@ -18,7 +18,7 @@ describe('ItemTooltip', () => {
     expect(screen.getByText('Requires Level 12')).toBeInTheDocument()
     expect(screen.getByText('Requires Tailoring (50)')).toBeInTheDocument()
     expect(screen.getByText('"Soft and green."')).toBeInTheDocument()
-    expect(line('Sell Price: _2 16')).toBeInTheDocument()
+    expect(line('Sell Price: 2 16')).toBeInTheDocument()
     expect(screen.queryByText(/Auction:|Vendor:/)).not.toBeInTheDocument()
     expect(screen.getByRole('presentation')).toHaveAttribute(
       'src',
@@ -35,7 +35,7 @@ describe('ItemTooltip', () => {
 
   it('adds the vendor price of vendor-sold items', () => {
     renderWithProviders(<ItemTooltip item={thread} />)
-    expect(line('Vendor: _1 _0')).toBeInTheDocument()
+    expect(line('Vendor: 1 0')).toBeInTheDocument()
   })
 
   it('shows reagents above the crafted item on a recipe', () => {
