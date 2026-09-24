@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS items (
     class_id INTEGER NOT NULL DEFAULT 0,     -- 2 weapon, 4 armor, ...
     subclass_id INTEGER NOT NULL DEFAULT 0,
     sell_price INTEGER NOT NULL DEFAULT 0,   -- vendor buys from you
-    buy_price INTEGER NOT NULL DEFAULT 0,    -- vendor price (only relevant if a vendor sells it)
+    buy_price INTEGER NOT NULL DEFAULT 0,    -- vendor price per buy_count units (only if a vendor sells it)
     bonding INTEGER NOT NULL DEFAULT 0,      -- 1 on pickup, 2 on equip, 3 on use, 4 quest item
     -- tooltip-only fields (see ITEM_COLUMNS for databases created before they existed)
     inventory_type INTEGER NOT NULL DEFAULT 0, -- equip slot: 5 chest, 13 one-hand, 16 back, ...
@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS items (
     required_skill TEXT,                     -- skill line name, e.g. Engineering
     required_skill_rank INTEGER NOT NULL DEFAULT 0,
     description TEXT,                        -- flavor text
-    icon TEXT                                -- icon file name, lowercase, without extension
+    icon TEXT,                               -- icon file name, lowercase, without extension
+    buy_count INTEGER NOT NULL DEFAULT 1     -- vendors sell stacks of this many for buy_price
 );
 CREATE INDEX IF NOT EXISTS items_name ON items(name);
 
@@ -64,6 +65,10 @@ CREATE TABLE IF NOT EXISTS disenchant (
     max_count INTEGER NOT NULL
 );
 
+-- Which items vendors sell (unlimited stock) is server-side data, NOT in DB2. Seeded from
+-- data/vendor_items.csv (scripts/build_vendor_items.py); the price is items.buy_price / buy_count.
+CREATE TABLE IF NOT EXISTS vendor_items (item_id INTEGER PRIMARY KEY);
+
 CREATE TABLE IF NOT EXISTS prices (
     item_id INTEGER PRIMARY KEY,
     price INTEGER NOT NULL,                  -- copper, per single item
@@ -72,6 +77,33 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+
+-- Characters from the Alt Army addon's SavedVariables, replaced wholesale on every import. Ingest leaves
+-- them alone.
+CREATE TABLE IF NOT EXISTS characters (
+    id INTEGER PRIMARY KEY,
+    realm TEXT NOT NULL,
+    name TEXT NOT NULL,
+    faction TEXT NOT NULL,                   -- Horde | Alliance | "" (never scanned)
+    class_file TEXT NOT NULL,                -- e.g. PALADIN
+    level INTEGER NOT NULL,
+    UNIQUE (realm, name)
+);
+
+CREATE TABLE IF NOT EXISTS character_professions (
+    character_id INTEGER NOT NULL REFERENCES characters(id),
+    skill_name TEXT NOT NULL,
+    rank INTEGER NOT NULL,
+    max_rank INTEGER NOT NULL,
+    PRIMARY KEY (character_id, skill_name)
+);
+
+CREATE TABLE IF NOT EXISTS character_recipes (
+    character_id INTEGER NOT NULL REFERENCES characters(id),
+    skill_name TEXT NOT NULL,
+    spell_id INTEGER NOT NULL,               -- matches recipes.spell_id
+    PRIMARY KEY (character_id, skill_name, spell_id)
+);
 """
 
 
@@ -93,6 +125,7 @@ ITEM_COLUMNS = {
     "required_skill_rank": "INTEGER NOT NULL DEFAULT 0",
     "description": "TEXT",
     "icon": "TEXT",
+    "buy_count": "INTEGER NOT NULL DEFAULT 1",
 }
 
 
@@ -115,7 +148,7 @@ def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.commit()
 
 
-COUNTED_TABLES = ("items", "recipes", "prices")
+COUNTED_TABLES = ("items", "recipes", "prices", "disenchant", "vendor_items", "characters")
 
 
 def count_rows(conn: sqlite3.Connection, table: str) -> int:

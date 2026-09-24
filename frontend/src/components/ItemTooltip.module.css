@@ -66,6 +66,17 @@
   margin-top: 10px;
 }
 
+.material {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: pre;
+}
+
+.dim {
+  color: #9d9d9d;
+}
+
 .coins {
   white-space: nowrap;
 }

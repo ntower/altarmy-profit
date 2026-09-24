@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 import struct
 
+from .luasv import lua_string
+
 _TABLE = b"AUCTIONATOR_PRICE_DATABASE = {"
 _ESCAPES = {b"n": 10, b"r": 13, b"t": 9, b"a": 7, b"b": 8, b"f": 12, b"v": 11, b"\n": 10}
 _ITEM_KEY = re.compile(r"(?:g:)?(\d+)(?::.*)?")
@@ -50,41 +52,17 @@ def _table_strings(text: bytes, pos: int) -> list[tuple[str, bytes]]:
             return entries
         if text[pos : pos + 1] != b"[":
             raise ValueError(f"unexpected Lua syntax at byte {pos}")
-        key, pos = _lua_string(text, pos + 1)
+        key, pos = lua_string(text, pos + 1)
         pos = text.index(b"=", pos) + 1
         while text[pos] in b" \t":
             pos += 1
         if text[pos : pos + 1] == b'"':
-            value, pos = _lua_string(text, pos)
+            value, pos = lua_string(text, pos)
             entries.append((key.decode("utf-8", "replace"), value))
         else:  # number or nested table from an older db version: skip the line
             pos = text.index(b"\n", pos)
         if text[pos : pos + 1] == b",":
             pos += 1
-
-
-def _lua_string(text: bytes, pos: int) -> tuple[bytes, int]:
-    """Decode the quoted Lua string starting at `pos`; returns (bytes, position after closing quote)."""
-    assert text[pos : pos + 1] == b'"'
-    pos += 1
-    out = bytearray()
-    while True:
-        c = text[pos]
-        if c == 0x22:
-            return bytes(out), pos + 1
-        if c != 0x5C:
-            out.append(c)
-            pos += 1
-            continue
-        nxt = text[pos + 1 : pos + 2]
-        if nxt.isdigit():
-            digits = re.match(rb"\d{1,3}", text[pos + 1 : pos + 4])
-            assert digits
-            out.append(int(digits.group()))
-            pos += 1 + len(digits.group())
-        else:
-            out.append(_ESCAPES.get(nxt, nxt[0]))
-            pos += 2
 
 
 def _cbor(b: bytes, i: int) -> tuple[object, int]:

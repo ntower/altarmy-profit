@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/altarmy/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Altarmy Files */
+        get: operations["get_altarmy_files_api_altarmy_files_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auctionator/files": {
         parameters: {
             query?: never;
@@ -21,32 +38,15 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/auctionator/import": {
+    "/api/characters": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        put?: never;
-        /** Import Auctionator */
-        post: operations["import_auctionator_api_auctionator_import_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/auctionator/realms": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Auctionator Realms */
-        get: operations["get_auctionator_realms_api_auctionator_realms_get"];
+        /** Get Characters */
+        get: operations["get_characters_api_characters_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -72,23 +72,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/professions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Professions */
-        get: operations["get_professions_api_professions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/rank": {
         parameters: {
             query?: never;
@@ -96,7 +79,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Rank */
+        /**
+         * Get Rank
+         * @description What the selected realm/faction's characters can craft, most profitable first.
+         */
         get: operations["get_rank_api_rank_get"];
         put?: never;
         post?: never;
@@ -126,6 +112,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Selection
+         * @description Switch realm/faction; that realm's Auctionator prices replace the previous ones.
+         */
+        put: operations["put_selection_api_selection_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Sources */
+        put: operations["put_sources_api_sources_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/status": {
         parameters: {
             query?: never;
@@ -133,10 +156,33 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Status */
+        /**
+         * Get Status
+         * @description Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten.
+         */
         get: operations["get_status_api_status_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync Now
+         * @description Re-import both addon files even if they look unchanged.
+         */
+        post: operations["sync_now_api_sync_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -147,40 +193,45 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AuctionatorFiles */
-        AuctionatorFiles: {
-            /** Default */
-            default: string | null;
-            /** Files */
-            files: string[];
+        /** CharacterOut */
+        CharacterOut: {
+            /** Class File */
+            class_file: string;
+            /** Level */
+            level: number;
+            /** Name */
+            name: string;
+            /** Professions */
+            professions: components["schemas"]["ProfessionOut"][];
+        };
+        /** Characters */
+        Characters: {
+            /** Groups */
+            groups: components["schemas"]["GroupOut"][];
+            selection: components["schemas"]["SelectionModel"] | null;
         };
         /** ExitOut */
         ExitOut: {
             /** Kind */
             kind: string;
+            /** Materials */
+            materials: components["schemas"]["MaterialOut"][];
             /** Value */
             value: number;
+        };
+        /** GroupOut */
+        GroupOut: {
+            /** Characters */
+            characters: components["schemas"]["CharacterOut"][];
+            /** Faction */
+            faction: string;
+            /** Realm */
+            realm: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
-        };
-        /** ImportRequest */
-        ImportRequest: {
-            /** Path */
-            path: string;
-            /** Realm */
-            realm: string;
-        };
-        /** ImportResult */
-        ImportResult: {
-            /** Imported */
-            imported: number;
-            /** Realm */
-            realm: string;
-            /** Unknown */
-            unknown: number;
         };
         /** ItemCount */
         ItemCount: {
@@ -226,6 +277,61 @@ export interface components {
             sell_price: number;
             /** Subclass Name */
             subclass_name: string | null;
+            /** Vendor Price */
+            vendor_price: number | null;
+        };
+        /**
+         * MaterialOut
+         * @description One possible disenchant result.
+         */
+        MaterialOut: {
+            /** Chance */
+            chance: number;
+            /** Item Id */
+            item_id: number;
+            /** Max Count */
+            max_count: number;
+            /** Min Count */
+            min_count: number;
+            /** Name */
+            name: string;
+            /** Value */
+            value: number | null;
+        };
+        /**
+         * NodeOut
+         * @description One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs.
+         */
+        NodeOut: {
+            /** Cost */
+            cost: number;
+            /** Crafts */
+            crafts: number;
+            /** Inputs */
+            inputs: components["schemas"]["NodeOut"][];
+            /** Item Id */
+            item_id: number;
+            /** Made */
+            made: number;
+            /** Name */
+            name: string;
+            /** Quantity */
+            quantity: number;
+            /** Source */
+            source: string;
+            /** Via */
+            via: string;
+        };
+        /** ProfessionOut */
+        ProfessionOut: {
+            /** Max Rank */
+            max_rank: number;
+            /** Name */
+            name: string;
+            /** Rank */
+            rank: number;
+            /** Recipes */
+            recipes: number;
         };
         /** RankResponse */
         RankResponse: {
@@ -242,6 +348,8 @@ export interface components {
             best_exit: string;
             /** Cost */
             cost: number;
+            /** Crafters */
+            crafters: string[];
             /** Exits */
             exits: components["schemas"]["ExitOut"][];
             /** Output Count */
@@ -266,28 +374,66 @@ export interface components {
             roi: number;
             /** Steps */
             steps: components["schemas"]["StepOut"][];
+            tree: components["schemas"]["NodeOut"];
         };
-        /** Realms */
-        Realms: {
+        /**
+         * SelectionModel
+         * @description A realm and faction: whose recipes count and which auction house prices them.
+         */
+        SelectionModel: {
+            /** Faction */
+            faction: string;
+            /** Realm */
+            realm: string;
+        };
+        /** SourceFiles */
+        SourceFiles: {
             /** Default */
             default: string | null;
-            /** Realms */
-            realms: string[];
+            /** Files */
+            files: string[];
+        };
+        /**
+         * Sources
+         * @description SavedVariables files to sync from; a missing field keeps that source.
+         */
+        Sources: {
+            /** Altarmy Path */
+            altarmy_path?: string | null;
+            /** Auctionator Path */
+            auctionator_path?: string | null;
         };
         /** Status */
         Status: {
+            /** Altarmy Path */
+            altarmy_path: string | null;
+            /** Auctionator Path */
+            auctionator_path: string | null;
+            /** Auctionator Realm */
+            auctionator_realm: string | null;
             /** Build */
             build: string | null;
+            /** Characters */
+            characters: number;
+            /** Data Version */
+            data_version: number;
             /** Db Path */
             db_path: string;
             /** Items */
             items: number;
+            /** Last Altarmy Sync */
+            last_altarmy_sync: string | null;
             /** Last Auctionator Import */
             last_auctionator_import: string | null;
+            /** Last Auctionator Sync */
+            last_auctionator_sync: string | null;
             /** Prices */
             prices: number;
             /** Recipes */
             recipes: number;
+            selection: components["schemas"]["SelectionModel"] | null;
+            /** Warnings */
+            warnings: string[];
         };
         /** StepOut */
         StepOut: {
@@ -317,6 +463,10 @@ export interface components {
             items: number;
             /** Recipes */
             recipes: number;
+            /** Updated */
+            updated: boolean;
+            /** Vendor Items */
+            vendor_items: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -340,6 +490,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_altarmy_files_api_altarmy_files_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceFiles"];
+                };
+            };
+        };
+    };
     get_auctionator_files_api_auctionator_files_get: {
         parameters: {
             query?: never;
@@ -355,49 +525,14 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AuctionatorFiles"];
+                    "application/json": components["schemas"]["SourceFiles"];
                 };
             };
         };
     };
-    import_auctionator_api_auctionator_import_post: {
+    get_characters_api_characters_get: {
         parameters: {
             query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ImportRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ImportResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_auctionator_realms_api_auctionator_realms_get: {
-        parameters: {
-            query: {
-                path: string;
-            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -410,23 +545,17 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Realms"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/json": components["schemas"]["Characters"];
                 };
             };
         };
     };
     update_game_data_api_game_data_update_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description skip the rebuild if the newest build is loaded */
+                only_if_new?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -442,24 +571,13 @@ export interface operations {
                     "application/json": components["schemas"]["UpdateResult"];
                 };
             };
-        };
-    };
-    get_professions_api_professions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
+            /** @description Validation Error */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": string[];
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -467,7 +585,8 @@ export interface operations {
     get_rank_api_rank_get: {
         parameters: {
             query?: {
-                professions?: string[];
+                /** @description rank every recipe of the characters' professions, not just learned ones */
+                include_unlearned?: boolean;
                 /** @description copper */
                 min_profit?: number;
                 top?: number;
@@ -518,7 +637,93 @@ export interface operations {
             };
         };
     };
+    put_selection_api_selection_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectionModel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_sources_api_sources_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Sources"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_status_api_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Status"];
+                };
+            };
+        };
+    };
+    sync_now_api_sync_post: {
         parameters: {
             query?: never;
             header?: never;

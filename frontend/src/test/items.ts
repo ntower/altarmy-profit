@@ -17,12 +17,13 @@ export function makeItem(overrides: Partial<ItemInfo> & Pick<ItemInfo, 'id' | 'n
     sell_price: 0,
     icon: null,
     ah_price: null,
+    vendor_price: null,
     ...overrides,
   }
 }
 
 export const linen = makeItem({ id: 1, name: 'Linen Cloth', sell_price: 13, ah_price: 20 })
-export const thread = makeItem({ id: 2, name: 'Coarse Thread', sell_price: 10 })
+export const thread = makeItem({ id: 2, name: 'Coarse Thread', sell_price: 10, vendor_price: 100 })
 export const robe = makeItem({
   id: 3,
   name: 'Green Robe',

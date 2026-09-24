@@ -4,9 +4,15 @@ import type { components, paths } from './schema'
 export type Status = components['schemas']['Status']
 export type RankResult = components['schemas']['RankResult']
 export type ItemInfo = components['schemas']['ItemInfo']
+/** One item in a recipe's reagent tree: bought (no inputs) or crafted from its inputs. */
+export type FlowNode = components['schemas']['NodeOut']
 /** Tooltip details keyed by item id (JSON object keys are strings). */
 export type ItemMap = Readonly<Record<string, ItemInfo>>
-export type ImportRequest = components['schemas']['ImportRequest']
+export type Characters = components['schemas']['Characters']
+export type CharacterGroup = components['schemas']['GroupOut']
+export type Selection = components['schemas']['SelectionModel']
+export type Sources = components['schemas']['Sources']
+export type UpdateResult = components['schemas']['UpdateResult']
 
 export const client = createClient<paths>({
   baseUrl: globalThis.location?.origin ?? '',

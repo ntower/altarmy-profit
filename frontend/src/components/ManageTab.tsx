@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { Alert, Autocomplete, Button, Card, Group, Loader, Select, Stack, Text, Title } from '@mantine/core'
-import { useDebouncedValue } from '@mantine/hooks'
+import { Alert, Autocomplete, Button, Card, Group, Stack, Text, Title } from '@mantine/core'
+import type { Sources } from '../api/client'
 import {
+  useAltArmyFiles,
   useAuctionatorFiles,
-  useAuctionatorRealms,
-  useImportAuctionator,
   useReload,
+  useSetSources,
   useStatus,
+  useSyncNow,
   useUpdateGameData,
 } from '../api/queries'
 
@@ -38,60 +39,92 @@ function GameDataCard() {
   )
 }
 
-function RealmImport({ path }: { path: string }) {
-  const realms = useAuctionatorRealms(path)
-  const importPrices = useImportAuctionator()
-  const [picked, setPicked] = useState<string | null>(null)
-
-  if (!path) return null
-  if (realms.isPending) return <Loader size="sm" />
-  if (realms.isError) return <Alert color="red">{realms.error.message}</Alert>
-  if (!realms.data.realms.length) {
-    return <Alert color="yellow">No realms in this file yet. Scan the auction house first.</Alert>
-  }
-  const realm = picked !== null && realms.data.realms.includes(picked) ? picked : realms.data.default
+/** Pick a SavedVariables file from the ones found, or paste a path; the server syncs from it. */
+function SourceFile({
+  label,
+  files,
+  current,
+  field,
+}: {
+  label: string
+  files: string[]
+  current: string | null
+  field: keyof Sources
+}) {
+  const setSources = useSetSources()
+  // null until the user types, so the file in use shows first.
+  const [typed, setTyped] = useState<string | null>(null)
+  const value = typed ?? current ?? ''
+  const path = value.trim()
   return (
-    <Group align="flex-end">
-      <Select label="Realm" data={realms.data.realms} value={realm} onChange={setPicked} allowDeselect={false} />
+    <Group align="flex-end" wrap="nowrap">
+      <Autocomplete
+        label={label}
+        placeholder="Paste the path to the file"
+        data={files}
+        value={value}
+        onChange={setTyped}
+        clearable
+        style={{ flex: 1 }}
+      />
       <Button
-        disabled={!realm}
-        loading={importPrices.isPending}
-        onClick={() => realm && importPrices.mutate({ path, realm })}
+        variant="default"
+        disabled={!path || path === current}
+        loading={setSources.isPending}
+        onClick={() => setSources.mutate({ [field]: path })}
       >
-        Import prices
+        Use this file
       </Button>
     </Group>
   )
 }
 
-function AuctionatorCard() {
+function AddonDataCard() {
   const status = useStatus()
-  const files = useAuctionatorFiles()
-  // null until the user types, so the server's default (last import, else WoW: Forever) shows first.
-  const [typed, setTyped] = useState<string | null>(null)
-  const path = (typed ?? files.data?.default ?? '').trim()
-  const [debouncedPath] = useDebouncedValue(path, 400)
-  const last = status.data?.last_auctionator_import
-
+  const altArmyFiles = useAltArmyFiles()
+  const auctionatorFiles = useAuctionatorFiles()
+  const sync = useSyncNow()
+  if (!status.data) return null
+  const s = status.data
   return (
     <Card withBorder>
       <Stack gap="sm">
-        <Title order={3}>Auctionator prices</Title>
-        <Text>
-          Last import: <b>{last ? `${last} UTC` : 'never'}</b>
-        </Text>
+        <Title order={3}>Addon data</Title>
         <Text size="sm" c="dimmed">
-          WoW writes SavedVariables on logout or /reload, so do one of those after scanning.
+          Characters come from Alt Army and prices from Auctionator. WoW writes both files on logout or /reload;
+          wow-profit re-reads them whenever they change.
         </Text>
-        <Autocomplete
-          label="Auctionator.lua (account-wide SavedVariables)"
-          placeholder="Paste the path to Auctionator.lua"
-          data={files.data?.files ?? []}
-          value={typed ?? files.data?.default ?? ''}
-          onChange={setTyped}
-          clearable
+        {s.warnings.map((w) => (
+          <Alert key={w} color="yellow">
+            {w}
+          </Alert>
+        ))}
+        <SourceFile
+          label="AltArmy_TBC.lua (account-wide SavedVariables)"
+          files={altArmyFiles.data?.files ?? []}
+          current={s.altarmy_path}
+          field="altarmy_path"
         />
-        <RealmImport path={debouncedPath} />
+        <Text>
+          <b>{s.characters.toLocaleString()}</b> characters, last read{' '}
+          <b>{s.last_altarmy_sync ? `${s.last_altarmy_sync} UTC` : 'never'}</b>.
+        </Text>
+        <SourceFile
+          label="Auctionator.lua (account-wide SavedVariables)"
+          files={auctionatorFiles.data?.files ?? []}
+          current={s.auctionator_path}
+          field="auctionator_path"
+        />
+        <Text>
+          Prices from <b>{s.auctionator_realm || 'no realm'}</b>
+          {s.selection && ` (for ${s.selection.realm}, ${s.selection.faction})`}, last imported{' '}
+          <b>{s.last_auctionator_import ? `${s.last_auctionator_import} UTC` : 'never'}</b>.
+        </Text>
+        <Group>
+          <Button onClick={() => sync.mutate()} loading={sync.isPending}>
+            Sync now
+          </Button>
+        </Group>
       </Stack>
     </Card>
   )
@@ -102,7 +135,7 @@ export function ManageTab() {
   return (
     <Stack>
       <GameDataCard />
-      <AuctionatorCard />
+      <AddonDataCard />
       <Group>
         <Button variant="default" onClick={() => reload.mutate()} loading={reload.isPending}>
           Reload data

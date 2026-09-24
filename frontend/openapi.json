@@ -1,32 +1,62 @@
 {
   "components": {
     "schemas": {
-      "AuctionatorFiles": {
+      "CharacterOut": {
         "properties": {
-          "default": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Default"
+          "class_file": {
+            "title": "Class File",
+            "type": "string"
           },
-          "files": {
+          "level": {
+            "title": "Level",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "professions": {
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/ProfessionOut"
             },
-            "title": "Files",
+            "title": "Professions",
             "type": "array"
           }
         },
         "required": [
-          "files",
-          "default"
+          "name",
+          "class_file",
+          "level",
+          "professions"
         ],
-        "title": "AuctionatorFiles",
+        "title": "CharacterOut",
+        "type": "object"
+      },
+      "Characters": {
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/GroupOut"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SelectionModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "groups",
+          "selection"
+        ],
+        "title": "Characters",
         "type": "object"
       },
       "ExitOut": {
@@ -35,6 +65,13 @@
             "title": "Kind",
             "type": "string"
           },
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/MaterialOut"
+            },
+            "title": "Materials",
+            "type": "array"
+          },
           "value": {
             "title": "Value",
             "type": "integer"
@@ -42,9 +79,36 @@
         },
         "required": [
           "kind",
-          "value"
+          "value",
+          "materials"
         ],
         "title": "ExitOut",
+        "type": "object"
+      },
+      "GroupOut": {
+        "properties": {
+          "characters": {
+            "items": {
+              "$ref": "#/components/schemas/CharacterOut"
+            },
+            "title": "Characters",
+            "type": "array"
+          },
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "faction",
+          "characters"
+        ],
+        "title": "GroupOut",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -58,47 +122,6 @@
           }
         },
         "title": "HTTPValidationError",
-        "type": "object"
-      },
-      "ImportRequest": {
-        "properties": {
-          "path": {
-            "title": "Path",
-            "type": "string"
-          },
-          "realm": {
-            "title": "Realm",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "realm"
-        ],
-        "title": "ImportRequest",
-        "type": "object"
-      },
-      "ImportResult": {
-        "properties": {
-          "imported": {
-            "title": "Imported",
-            "type": "integer"
-          },
-          "realm": {
-            "title": "Realm",
-            "type": "string"
-          },
-          "unknown": {
-            "title": "Unknown",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "realm",
-          "imported",
-          "unknown"
-        ],
-        "title": "ImportResult",
         "type": "object"
       },
       "ItemCount": {
@@ -220,6 +243,17 @@
               }
             ],
             "title": "Subclass Name"
+          },
+          "vendor_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Price"
           }
         },
         "required": [
@@ -238,9 +272,141 @@
           "description",
           "sell_price",
           "icon",
-          "ah_price"
+          "ah_price",
+          "vendor_price"
         ],
         "title": "ItemInfo",
+        "type": "object"
+      },
+      "MaterialOut": {
+        "description": "One possible disenchant result.",
+        "properties": {
+          "chance": {
+            "title": "Chance",
+            "type": "number"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "max_count": {
+            "title": "Max Count",
+            "type": "integer"
+          },
+          "min_count": {
+            "title": "Min Count",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "chance",
+          "min_count",
+          "max_count",
+          "value"
+        ],
+        "title": "MaterialOut",
+        "type": "object"
+      },
+      "NodeOut": {
+        "description": "One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs.",
+        "properties": {
+          "cost": {
+            "title": "Cost",
+            "type": "integer"
+          },
+          "crafts": {
+            "title": "Crafts",
+            "type": "integer"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/NodeOut"
+            },
+            "title": "Inputs",
+            "type": "array"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "integer"
+          },
+          "made": {
+            "title": "Made",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "via": {
+            "title": "Via",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "name",
+          "quantity",
+          "cost",
+          "via",
+          "crafts",
+          "made",
+          "source",
+          "inputs"
+        ],
+        "title": "NodeOut",
+        "type": "object"
+      },
+      "ProfessionOut": {
+        "properties": {
+          "max_rank": {
+            "title": "Max Rank",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rank": {
+            "title": "Rank",
+            "type": "integer"
+          },
+          "recipes": {
+            "title": "Recipes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "rank",
+          "max_rank",
+          "recipes"
+        ],
+        "title": "ProfessionOut",
         "type": "object"
       },
       "RankResponse": {
@@ -276,6 +442,13 @@
           "cost": {
             "title": "Cost",
             "type": "integer"
+          },
+          "crafters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Crafters",
+            "type": "array"
           },
           "exits": {
             "items": {
@@ -333,12 +506,16 @@
             },
             "title": "Steps",
             "type": "array"
+          },
+          "tree": {
+            "$ref": "#/components/schemas/NodeOut"
           }
         },
         "required": [
           "recipe_id",
           "recipe",
           "profession",
+          "crafters",
           "output_item_id",
           "output_name",
           "output_count",
@@ -349,12 +526,32 @@
           "best_exit",
           "exits",
           "reagents",
-          "steps"
+          "steps",
+          "tree"
         ],
         "title": "RankResult",
         "type": "object"
       },
-      "Realms": {
+      "SelectionModel": {
+        "description": "A realm and faction: whose recipes count and which auction house prices them.",
+        "properties": {
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "faction"
+        ],
+        "title": "SelectionModel",
+        "type": "object"
+      },
+      "SourceFiles": {
         "properties": {
           "default": {
             "anyOf": [
@@ -367,23 +564,85 @@
             ],
             "title": "Default"
           },
-          "realms": {
+          "files": {
             "items": {
               "type": "string"
             },
-            "title": "Realms",
+            "title": "Files",
             "type": "array"
           }
         },
         "required": [
-          "realms",
+          "files",
           "default"
         ],
-        "title": "Realms",
+        "title": "SourceFiles",
+        "type": "object"
+      },
+      "Sources": {
+        "description": "SavedVariables files to sync from; a missing field keeps that source.",
+        "properties": {
+          "altarmy_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altarmy Path"
+          },
+          "auctionator_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auctionator Path"
+          }
+        },
+        "title": "Sources",
         "type": "object"
       },
       "Status": {
         "properties": {
+          "altarmy_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altarmy Path"
+          },
+          "auctionator_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auctionator Path"
+          },
+          "auctionator_realm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auctionator Realm"
+          },
           "build": {
             "anyOf": [
               {
@@ -395,6 +654,14 @@
             ],
             "title": "Build"
           },
+          "characters": {
+            "title": "Characters",
+            "type": "integer"
+          },
+          "data_version": {
+            "title": "Data Version",
+            "type": "integer"
+          },
           "db_path": {
             "title": "Db Path",
             "type": "string"
@@ -402,6 +669,17 @@
           "items": {
             "title": "Items",
             "type": "integer"
+          },
+          "last_altarmy_sync": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Altarmy Sync"
           },
           "last_auctionator_import": {
             "anyOf": [
@@ -414,6 +692,17 @@
             ],
             "title": "Last Auctionator Import"
           },
+          "last_auctionator_sync": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Auctionator Sync"
+          },
           "prices": {
             "title": "Prices",
             "type": "integer"
@@ -421,6 +710,23 @@
           "recipes": {
             "title": "Recipes",
             "type": "integer"
+          },
+          "selection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SelectionModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -429,7 +735,16 @@
           "items",
           "recipes",
           "prices",
-          "last_auctionator_import"
+          "characters",
+          "last_auctionator_import",
+          "last_altarmy_sync",
+          "last_auctionator_sync",
+          "altarmy_path",
+          "auctionator_path",
+          "auctionator_realm",
+          "selection",
+          "data_version",
+          "warnings"
         ],
         "title": "Status",
         "type": "object"
@@ -494,13 +809,23 @@
           "recipes": {
             "title": "Recipes",
             "type": "integer"
+          },
+          "updated": {
+            "title": "Updated",
+            "type": "boolean"
+          },
+          "vendor_items": {
+            "title": "Vendor Items",
+            "type": "integer"
           }
         },
         "required": [
           "build",
+          "updated",
           "items",
           "recipes",
-          "disenchant_rows"
+          "disenchant_rows",
+          "vendor_items"
         ],
         "title": "UpdateResult",
         "type": "object"
@@ -553,6 +878,24 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/altarmy/files": {
+      "get": {
+        "operationId": "get_altarmy_files_api_altarmy_files_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceFiles"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Altarmy Files"
+      }
+    },
     "/api/auctionator/files": {
       "get": {
         "operationId": "get_auctionator_files_api_auctionator_files_get",
@@ -561,7 +904,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AuctionatorFiles"
+                  "$ref": "#/components/schemas/SourceFiles"
                 }
               }
             },
@@ -571,86 +914,41 @@
         "summary": "Get Auctionator Files"
       }
     },
-    "/api/auctionator/import": {
-      "post": {
-        "operationId": "import_auctionator_api_auctionator_import_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ImportRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ImportResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Import Auctionator"
-      }
-    },
-    "/api/auctionator/realms": {
+    "/api/characters": {
       "get": {
-        "operationId": "get_auctionator_realms_api_auctionator_realms_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "path",
-            "required": true,
-            "schema": {
-              "title": "Path",
-              "type": "string"
-            }
-          }
-        ],
+        "operationId": "get_characters_api_characters_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Realms"
+                  "$ref": "#/components/schemas/Characters"
                 }
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
-        "summary": "Get Auctionator Realms"
+        "summary": "Get Characters"
       }
     },
     "/api/game-data/update": {
       "post": {
         "operationId": "update_game_data_api_game_data_update_post",
+        "parameters": [
+          {
+            "description": "skip the rebuild if the newest build is loaded",
+            "in": "query",
+            "name": "only_if_new",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "skip the rebuild if the newest build is loaded",
+              "title": "Only If New",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -661,47 +959,36 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Update Game Data"
       }
     },
-    "/api/professions": {
-      "get": {
-        "operationId": "get_professions_api_professions_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "title": "Response Get Professions Api Professions Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Professions"
-      }
-    },
     "/api/rank": {
       "get": {
+        "description": "What the selected realm/faction's characters can craft, most profitable first.",
         "operationId": "get_rank_api_rank_get",
         "parameters": [
           {
+            "description": "rank every recipe of the characters' professions, not just learned ones",
             "in": "query",
-            "name": "professions",
+            "name": "include_unlearned",
             "required": false,
             "schema": {
-              "items": {
-                "type": "string"
-              },
-              "title": "Professions",
-              "type": "array"
+              "default": false,
+              "description": "rank every recipe of the characters' professions, not just learned ones",
+              "title": "Include Unlearned",
+              "type": "boolean"
             }
           },
           {
@@ -773,8 +1060,86 @@
         "summary": "Reload"
       }
     },
+    "/api/selection": {
+      "put": {
+        "description": "Switch realm/faction; that realm's Auctionator prices replace the previous ones.",
+        "operationId": "put_selection_api_selection_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectionModel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Selection"
+      }
+    },
+    "/api/sources": {
+      "put": {
+        "operationId": "put_sources_api_sources_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Sources"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Sources"
+      }
+    },
     "/api/status": {
       "get": {
+        "description": "Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten.",
         "operationId": "get_status_api_status_get",
         "responses": {
           "200": {
@@ -789,6 +1154,25 @@
           }
         },
         "summary": "Get Status"
+      }
+    },
+    "/api/sync": {
+      "post": {
+        "description": "Re-import both addon files even if they look unchanged.",
+        "operationId": "sync_now_api_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync Now"
       }
     }
   }

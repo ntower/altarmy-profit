@@ -1,0 +1,1394 @@
+item_id,name
+85,Dirty Leather Vest
+117,Tough Jerky
+159,Refreshing Spring Water
+193,Tattered Cloth Vest
+194,Tattered Cloth Pants
+195,Tattered Cloth Boots
+200,Thick Cloth Vest
+201,Thick Cloth Pants
+202,Thick Cloth Shoes
+203,Thick Cloth Gloves
+209,Dirty Leather Pants
+210,Dirty Leather Boots
+236,Cured Leather Armor
+237,Cured Leather Pants
+238,Cured Leather Boots
+239,Cured Leather Gloves
+285,Scalemail Vest
+286,Scalemail Pants
+287,Scalemail Boots
+414,Dalaran Sharp
+422,Dwarven Mild
+711,Tattered Cloth Gloves
+714,Dirty Leather Gloves
+718,Scalemail Gloves
+728,Recipe: Westfall Stew
+787,Slitherskin Mackerel
+792,Knitted Sandals
+793,Knitted Gloves
+794,Knitted Pants
+795,Knitted Tunic
+796,Rough Leather Boots
+797,Rough Leather Gloves
+798,Rough Leather Pants
+799,Rough Leather Vest
+837,Heavy Weave Armor
+838,Heavy Weave Pants
+839,Heavy Weave Gloves
+840,Heavy Weave Shoes
+843,Tanned Leather Boots
+844,Tanned Leather Gloves
+845,Tanned Leather Pants
+846,Tanned Leather Jerkin
+847,Chainmail Armor
+848,Chainmail Pants
+849,Chainmail Boots
+850,Chainmail Gloves
+851,Cutlass
+852,Mace
+853,Hatchet
+854,Quarter Staff
+922,Dacian Falx
+923,Longsword
+924,Maul
+925,Flail
+926,Battle Axe
+927,Double Axe
+928,Long Staff
+1132,Horn of the Timber Wolf
+1179,Ice Cold Milk
+1194,Bastard Sword
+1196,Tabar
+1197,Giant Mace
+1198,Claymore
+1200,Large Wooden Shield
+1201,Dull Heater Shield
+1202,Wall Shield
+1205,Melon Juice
+1645,Moonberry Juice
+1707,Stormwind Brie
+1708,Sweet Nectar
+1835,Dirty Leather Belt
+1836,Dirty Leather Bracers
+1839,Rough Leather Belt
+1840,Rough Leather Bracers
+1843,Tanned Leather Belt
+1844,Tanned Leather Bracers
+1845,Chainmail Belt
+1846,Chainmail Bracers
+1849,Cured Leather Belt
+1850,Cured Leather Bracers
+1852,Scalemail Bracers
+1853,Scalemail Belt
+1939,Skin of Sweet Rum
+1941,Cask of Merlot
+1942,Bottle of Moonshine
+2024,Espadon
+2025,Bearded Axe
+2026,Rock Hammer
+2027,Scimitar
+2028,Hammer
+2029,Cleaver
+2030,Gnarled Staff
+2070,Darnassian Bleu
+2101,Light Quiver
+2117,Thin Cloth Shoes
+2119,Thin Cloth Gloves
+2120,Thin Cloth Pants
+2121,Thin Cloth Armor
+2122,Cracked Leather Belt
+2123,Cracked Leather Boots
+2124,Cracked Leather Bracers
+2125,Cracked Leather Gloves
+2126,Cracked Leather Pants
+2127,Cracked Leather Vest
+2129,Large Round Shield
+2130,Club
+2131,Shortsword
+2132,Short Staff
+2134,Hand Axe
+2139,Dirk
+2141,Cuirboulli Vest
+2142,Cuirboulli Belt
+2143,Cuirboulli Boots
+2144,Cuirboulli Bracers
+2145,Cuirboulli Gloves
+2146,Cuirboulli Pants
+2148,Polished Scale Belt
+2149,Polished Scale Boots
+2150,Polished Scale Bracers
+2151,Polished Scale Gloves
+2152,Polished Scale Leggings
+2153,Polished Scale Vest
+2156,Padded Boots
+2158,Padded Gloves
+2159,Padded Pants
+2160,Padded Armor
+2207,Jambiya
+2208,Poniard
+2209,Kris
+2287,Haunch of Meat
+2320,Coarse Thread
+2321,Fine Thread
+2324,Bleach
+2325,Black Dye
+2364,Woven Vest
+2366,Woven Pants
+2367,Woven Boots
+2369,Woven Gloves
+2370,Battered Leather Harness
+2371,Battered Leather Belt
+2372,Battered Leather Pants
+2373,Battered Leather Boots
+2374,Battered Leather Bracers
+2375,Battered Leather Gloves
+2376,Worn Heater Shield
+2379,Tarnished Chain Vest
+2380,Tarnished Chain Belt
+2381,Tarnished Chain Leggings
+2383,Tarnished Chain Boots
+2384,Tarnished Chain Bracers
+2385,Tarnished Chain Gloves
+2386,Rusted Chain Vest
+2387,Rusted Chain Belt
+2388,Rusted Chain Leggings
+2389,Rusted Chain Boots
+2390,Rusted Chain Bracers
+2391,Rusted Chain Gloves
+2392,Light Mail Armor
+2393,Light Mail Belt
+2394,Light Mail Leggings
+2395,Light Mail Boots
+2396,Light Mail Bracers
+2397,Light Mail Gloves
+2398,Light Chain Armor
+2399,Light Chain Belt
+2400,Light Chain Leggings
+2401,Light Chain Boots
+2402,Light Chain Bracers
+2403,Light Chain Gloves
+2411,Black Stallion Bridle
+2414,Pinto Bridle
+2417,Augmented Chain Vest
+2418,Augmented Chain Leggings
+2419,Augmented Chain Belt
+2420,Augmented Chain Boots
+2421,Augmented Chain Bracers
+2422,Augmented Chain Gloves
+2423,Brigandine Vest
+2424,Brigandine Belt
+2425,Brigandine Leggings
+2426,Brigandine Boots
+2427,Brigandine Bracers
+2428,Brigandine Gloves
+2429,Russet Vest
+2431,Russet Pants
+2432,Russet Boots
+2434,Russet Gloves
+2435,Embroidered Armor
+2437,Embroidered Pants
+2438,Embroidered Boots
+2440,Embroidered Gloves
+2445,Large Metal Shield
+2446,Kite Shield
+2448,Heavy Pavise
+2451,Crested Heater Shield
+2463,Studded Doublet
+2464,Studded Belt
+2465,Studded Pants
+2467,Studded Boots
+2468,Studded Bracers
+2469,Studded Gloves
+2470,Reinforced Leather Vest
+2471,Reinforced Leather Belt
+2472,Reinforced Leather Pants
+2473,Reinforced Leather Boots
+2474,Reinforced Leather Bracers
+2475,Reinforced Leather Gloves
+2479,Broad Axe
+2480,Large Club
+2488,Gladius
+2489,Two-handed Sword
+2490,Tomahawk
+2491,Large Axe
+2492,Cudgel
+2493,Wooden Mallet
+2494,Stiletto
+2495,Walking Stick
+2504,Worn Shortbow
+2505,Polished Shortbow
+2506,Hornwood Recurve Bow
+2507,Laminated Recurve Bow
+2508,Old Blunderbuss
+2509,Ornate Blunderbuss
+2510,Solid Blunderbuss
+2511,Hunter's Boomstick
+2512,Rough Arrow
+2515,Sharp Arrow
+2516,Light Shot
+2519,Heavy Shot
+2520,Broadsword
+2521,Flamberge
+2522,Crescent Axe
+2523,Bullova
+2524,Truncheon
+2525,War Hammer
+2526,Main Gauche
+2527,Battle Staff
+2528,Falchion
+2529,Zweihander
+2530,Francisca
+2531,Great Axe
+2532,Morning Star
+2533,War Maul
+2534,Rondel
+2535,War Staff
+2593,Flask of Port
+2594,Flagon of Mead
+2595,Jug of Bourbon
+2596,Skin of Dwarven Stout
+2604,Red Dye
+2605,Green Dye
+2612,Plain Robe
+2613,Double-stitched Robes
+2614,Robe of Apprenticeship
+2615,Chromatic Robe
+2616,Shimmering Silk Robes
+2617,Burning Robes
+2618,Silver Dress Robes
+2665,Stormwind Seasoning Herbs
+2678,Mild Spices
+2686,Thunder Ale
+2692,Hot Spices
+2697,Recipe: Goretusk Liver Pie
+2698,Recipe: Cooked Crab Claw
+2699,Recipe: Redridge Goulash
+2700,Recipe: Succulent Pork Ribs
+2701,Recipe: Seasoned Wolf Kabob
+2723,Bottle of Pinot Noir
+2880,Weak Flux
+2889,Recipe: Beer Basted Boar Ribs
+2892,Deadly Poison
+2893,Deadly Poison II
+2894,Rhapsody Malt
+2901,Mining Pick
+2928,Dust of Decay
+2930,Essence of Pain
+2946,Balanced Throwing Dagger
+2947,Small Throwing Knife
+3023,Large Bore Blunderbuss
+3024,"BKP 2700 ""Enforcer"""
+3025,"BKP 42 ""Ultra"""
+3026,Reinforced Bow
+3027,Heavy Recurve Bow
+3030,Razor Arrow
+3033,Solid Shot
+3107,Keen Throwing Knife
+3108,Heavy Throwing Dagger
+3111,Crude Throwing Axe
+3131,Weighted Throwing Axe
+3135,Sharp Throwing Axe
+3137,Deadly Throwing Axe
+3371,Empty Vial
+3372,Leaded Vial
+3419,Red Rose
+3420,Black Rose
+3421,Simple Wildflowers
+3422,Beautiful Wildflowers
+3423,Bouquet of White Roses
+3424,Bouquet of Black Roses
+3426,Bold Yellow Shirt
+3427,Stylish Black Shirt
+3428,Common Gray Shirt
+3466,Strong Flux
+3587,Embroidered Belt
+3588,Embroidered Bracers
+3589,Heavy Weave Belt
+3590,Heavy Weave Bracers
+3591,Padded Belt
+3592,Padded Bracers
+3593,Russet Belt
+3594,Russet Bracers
+3595,Tattered Cloth Belt
+3596,Tattered Cloth Bracers
+3597,Thick Cloth Belt
+3598,Thick Cloth Bracers
+3599,Thin Cloth Belt
+3600,Thin Cloth Bracers
+3602,Knitted Belt
+3603,Knitted Bracers
+3606,Woven Belt
+3607,Woven Bracers
+3678,Recipe: Crocolisk Steak
+3679,Recipe: Blood Sausage
+3680,Recipe: Murloc Fin Soup
+3681,Recipe: Crocolisk Gumbo
+3682,Recipe: Curiously Tasty Omelet
+3683,Recipe: Gooey Spider Cake
+3703,Southshore Stout
+3713,Soothing Spices
+3734,Recipe: Big Bear Steak
+3735,Recipe: Hot Lion Chops
+3770,Mutton Chop
+3771,Wild Hog Shank
+3775,Crippling Poison
+3777,Lethargy Root
+3857,Coal
+3889,Russet Hat
+3890,Studded Hat
+3891,Augmented Chain Helm
+3892,Embroidered Hat
+3893,Reinforced Leather Cap
+3894,Brigandine Helm
+3927,Fine Aged Cheddar
+4289,Salt
+4291,Silken Thread
+4340,Gray Dye
+4341,Yellow Dye
+4342,Purple Dye
+4389,Gyrochronatom
+4399,Wooden Stock
+4400,Heavy Stock
+4470,Simple Wood
+4471,Flint and Tinder
+4496,Small Brown Pouch
+4497,Heavy Brown Bag
+4498,Brown Leather Satchel
+4499,Huge Brown Sack
+4536,Shiny Red Apple
+4537,Tel'Abim Banana
+4538,Snapvine Watermelon
+4539,Goldenbark Apple
+4540,Tough Hunk of Bread
+4541,Freshly Baked Bread
+4542,Moist Cornbread
+4544,Mulgore Spice Bread
+4565,Simple Dagger
+4592,Longjaw Mud Snapper
+4593,Bristle Whisker Catfish
+4594,Rockscale Cod
+4595,Junglevine Wine
+4599,Cured Ham Steak
+4600,Cherry Grog
+4601,Soft Banana Bread
+4602,Moon Harvest Pumpkin
+4604,Forest Mushroom Cap
+4605,Red-speckled Mushroom
+4606,Spongy Morel
+4607,Delicious Cave Mold
+4608,Raw Black Truffle
+4609,Recipe: Barbecued Buzzard Wing
+5042,Red Ribboned Wrapping Paper
+5048,Blue Ribboned Wrapping Paper
+5060,Thieves' Tools
+5140,Flash Powder
+5173,Deathweed
+5208,Smoldering Wand
+5209,Gloom Wand
+5210,Burning Wand
+5211,Dusk Wand
+5236,Combustible Wand
+5237,Mind-numbing Poison
+5238,Pitchwood Wand
+5239,Blackbone Wand
+5347,Pestilent Wand
+5439,Small Quiver
+5441,Small Shot Pouch
+5483,Recipe: Scorpid Surprise
+5484,Recipe: Roasted Kodo Meat
+5485,Recipe: Fillet of Frenzy
+5486,Recipe: Strider Stew
+5488,Recipe: Crispy Lizard Tail
+5489,Recipe: Lean Venison
+5528,Recipe: Clam Chowder
+5565,Infernal Stone
+5655,Chestnut Mare Bridle
+5656,Brown Horse Bridle
+5665,Horn of the Dire Wolf
+5668,Horn of the Brown Wolf
+5740,Red Fireworks Rocket
+5864,Gray Ram
+5872,Brown Ram
+5873,White Ram
+5956,Blacksmith Hammer
+5976,Guild Tabard
+6039,Recipe: Giant Clam Scorcho
+6217,Copper Rod
+6256,Fishing Pole
+6260,Blue Dye
+6261,Orange Dye
+6325,Recipe: Brilliant Smallfish
+6326,Recipe: Slitherskin Mackerel
+6328,Recipe: Longjaw Mud Snapper
+6329,Recipe: Loch Frenzy Delight
+6330,Recipe: Bristle Whisker Catfish
+6365,Strong Fishing Pole
+6368,Recipe: Rainbow Fin Albacore
+6369,Recipe: Rockscale Cod
+6523,Buckled Harness
+6524,Studded Leather Harness
+6525,Grunt's Harness
+6526,Battle Harness
+6529,Shiny Bauble
+6530,Nightcrawlers
+6532,Bright Baubles
+6892,Recipe: Smoked Bear Meat
+6947,Instant Poison
+6949,Instant Poison II
+6950,Instant Poison III
+7005,Skinning Knife
+7228,Tigule and Foror's Strawberry Ice Cream
+7337,The Rock
+7338,Mood Ring
+7339,Miniscule Diamond Ring
+7340,Flawless Diamond Solitaire
+7341,Cubic Zirconia Ring
+7342,Silver Piffeny Band
+7371,Heavy Quiver
+8030,Plans: Ebon Shiv
+8088,Platemail Belt
+8089,Platemail Boots
+8090,Platemail Bracers
+8091,Platemail Gloves
+8092,Platemail Helm
+8093,Platemail Leggings
+8094,Platemail Armor
+8343,Heavy Silken Thread
+8485,Cat Carrier (Bombay)
+8486,Cat Carrier (Cornish Rex)
+8487,Cat Carrier (Orange Tabby)
+8488,Cat Carrier (Silver Tabby)
+8495,Parrot Cage (Senegal)
+8496,Parrot Cage (Cockatiel)
+8497,Rabbit Crate (Snowshoe)
+8500,Great Horned Owl
+8501,Hawk Owl
+8523,Field Testing Kit
+8529,Noggenfogger Elixir
+8563,Red Mechanostrider
+8586,Whistle of the Mottled Red Raptor
+8588,Whistle of the Emerald Raptor
+8591,Whistle of the Turquoise Raptor
+8592,Whistle of the Violet Raptor
+8595,Blue Mechanostrider
+8624,Red Sparkler
+8625,White Sparkler
+8626,Blue Sparkler
+8629,Reins of the Striped Nightsaber
+8631,Reins of the Striped Frostsaber
+8632,Reins of the Spotted Frostsaber
+8766,Morning Glory Dew
+8923,Essence of Agony
+8924,Dust of Deterioration
+8925,Crystal Vial
+8926,Instant Poison IV
+8927,Instant Poison V
+8928,Instant Poison VI
+8932,Alterac Swiss
+8948,Dried King Bolete
+8950,Homemade Cherry Pie
+8952,Roasted Quail
+8953,Deep Fried Plantains
+8957,Spinefin Halibut
+8984,Deadly Poison III
+8985,Deadly Poison IV
+9303,Recipe: Philosopher's Stone
+9304,Recipe: Transmute Iron to Gold
+9312,Blue Firework
+9313,Green Firework
+9314,Red Streaks Firework
+9315,Yellow Rose Firework
+9317,"Red, White and Blue Firework"
+9318,Red Firework
+10290,Pink Dye
+10360,Black Kingsnake
+10361,Brown Snake
+10392,Crimson Snake
+10393,Cockroach
+10394,Prairie Dog Whistle
+10647,Engineer's Ink
+10648,Blank Parchment
+10684,Colossal Parachute
+10918,Wound Poison
+10920,Wound Poison II
+10921,Wound Poison III
+10922,Wound Poison IV
+11020,Evergreen Pouch
+11022,Packet of Tharlendris Seeds
+11023,Ancona Chicken
+11026,Tree Frog Box
+11109,Special Chicken Feed
+11141,Bait
+11284,Accurate Slugs
+11285,Jagged Arrow
+11291,Star Wood
+11362,Medium Quiver
+11444,Grim Guzzler Boar
+12226,Recipe: Crispy Bat Wing
+12228,Recipe: Roast Raptor
+12229,Recipe: Hot Wolf Ribs
+12231,Recipe: Jungle Stew
+12232,Recipe: Carrion Surprise
+12233,Recipe: Mystery Stew
+12239,Recipe: Dragonbreath Chili
+12240,Recipe: Heavy Kodo Stew
+12302,Reins of the Frostsaber
+12303,Reins of the Nightsaber
+12330,Horn of the Red Wolf
+12351,Horn of the Arctic Wolf
+12353,White Stallion Bridle
+12354,Palomino Bridle
+12584,Grand Marshal's Longsword
+12703,Plans: Storm Gauntlets
+12819,Plans: Ornate Thorium Handaxe
+12823,Plans: Huge Thorium Battleaxe
+12958,Recipe: Transmute Arcanite
+13317,Whistle of the Ivory Raptor
+13320,Arcane Quickener
+13321,Green Mechanostrider
+13322,Unpainted Mechanostrider
+13326,White Mechanostrider Mod A
+13327,Icy Blue Mechanostrider Mod A
+13328,Black Ram
+13329,Frost Ram
+13331,Red Skeletal Horse
+13332,Blue Skeletal Horse
+13333,Brown Skeletal Horse
+13334,Green Skeletal Warhorse
+13482,Recipe: Transmute Air to Fire
+13483,Recipe: Transmute Fire to Earth
+13484,Recipe: Transmute Earth to Water
+13485,Recipe: Transmute Water to Air
+13501,Recipe: Major Mana Potion
+13724,Enriched Manna Biscuit
+13810,Blessed Sunfruit
+13813,Blessed Sunfruit Juice
+13896,Dark Green Wedding Hanbok
+13897,White Traditional Hanbok
+13898,Royal Dangui
+13939,Recipe: Spotted Yellowtail
+13940,Recipe: Cooked Glossy Mightfish
+13941,Recipe: Filet of Redgill
+13942,Recipe: Grilled Squid
+13943,Recipe: Hot Smoked Bass
+13945,Recipe: Nightfin Soup
+13946,Recipe: Poached Sunscale Salmon
+13947,Recipe: Lobster Stew
+13948,Recipe: Mightfish Steak
+13949,Recipe: Baked Salmon
+14341,Rune Thread
+15196,Private's Tabard
+15197,Scout's Tabard
+15198,Knight's Colors
+15199,Stone Guard's Herald
+15200,Senior Sergeant's Insignia
+15277,Gray Kodo
+15290,Brown Kodo
+15292,Green Kodo
+15293,Teal Kodo
+15326,Gleaming Throwing Axe
+15327,Wicked Throwing Dagger
+15807,Light Crossbow
+15808,Fine Light Crossbow
+15809,Heavy Crossbow
+15810,Short Spear
+15811,Heavy Spear
+15903,Right-Handed Claw
+15904,Right-Handed Blades
+15905,Right-Handed Brass Knuckles
+15906,Left-Handed Brass Knuckles
+15907,Left-Handed Claw
+15909,Left-Handed Blades
+16059,Common Brown Shirt
+16060,Common White Shirt
+16072,Expert Cookbook
+16083,Expert Fishing - The Bass and You
+16084,Expert First Aid - Under Wraps
+16110,Recipe: Monster Omelet
+16111,Recipe: Spiced Chili Crab
+16112,Manual: Heavy Silk Bandage
+16113,Manual: Mageweave Bandage
+16166,Bean Soup
+16167,Versicolor Treat
+16168,Heaven Peach
+16169,Wild Ricecake
+16170,Steamed Mandu
+16171,Shinsollo
+16302,Grimoire of Firebolt (Rank 2)
+16316,Grimoire of Firebolt (Rank 3)
+16317,Grimoire of Firebolt (Rank 4)
+16318,Grimoire of Firebolt (Rank 5)
+16319,Grimoire of Firebolt (Rank 6)
+16320,Grimoire of Firebolt (Rank 7)
+16321,Grimoire of Blood Pact (Rank 1)
+16322,Grimoire of Blood Pact (Rank 2)
+16323,Grimoire of Blood Pact (Rank 3)
+16324,Grimoire of Blood Pact (Rank 4)
+16325,Grimoire of Blood Pact (Rank 5)
+16326,Grimoire of Fire Shield (Rank 1)
+16327,Grimoire of Fire Shield (Rank 2)
+16328,Grimoire of Fire Shield (Rank 3)
+16329,Grimoire of Fire Shield (Rank 4)
+16330,Grimoire of Fire Shield (Rank 5)
+16331,Grimoire of Phase Shift
+16335,Senior Sergeant's Insignia
+16341,Sergeant's Cloak
+16342,Sergeant's Cape
+16345,High Warlord's Blade
+16346,Grimoire of Torment (Rank 2)
+16347,Grimoire of Torment (Rank 3)
+16348,Grimoire of Torment (Rank 4)
+16349,Grimoire of Torment (Rank 5)
+16350,Grimoire of Torment (Rank 6)
+16351,Grimoire of Sacrifice (Rank 1)
+16352,Grimoire of Sacrifice (Rank 2)
+16353,Grimoire of Sacrifice (Rank 3)
+16354,Grimoire of Sacrifice (Rank 4)
+16355,Grimoire of Sacrifice (Rank 5)
+16356,Grimoire of Sacrifice (Rank 6)
+16357,Grimoire of Consume Shadows (Rank 1)
+16358,Grimoire of Consume Shadows (Rank 2)
+16359,Grimoire of Consume Shadows (Rank 3)
+16360,Grimoire of Consume Shadows (Rank 4)
+16361,Grimoire of Consume Shadows (Rank 5)
+16362,Grimoire of Consume Shadows (Rank 6)
+16363,Grimoire of Suffering (Rank 1)
+16364,Grimoire of Suffering (Rank 2)
+16365,Grimoire of Suffering (Rank 3)
+16366,Grimoire of Suffering (Rank 4)
+16368,Grimoire of Lash of Pain (Rank 2)
+16369,Knight-Lieutenant's Silk Boots
+16371,Grimoire of Lash of Pain (Rank 3)
+16372,Grimoire of Lash of Pain (Rank 4)
+16373,Grimoire of Lash of Pain (Rank 5)
+16374,Grimoire of Lash of Pain (Rank 6)
+16375,Grimoire of Soothing Kiss (Rank 1)
+16376,Grimoire of Soothing Kiss (Rank 2)
+16377,Grimoire of Soothing Kiss (Rank 3)
+16378,Grimoire of Soothing Kiss (Rank 4)
+16379,Grimoire of Seduction
+16380,Grimoire of Lesser Invisibility
+16381,Grimoire of Devour Magic (Rank 2)
+16382,Grimoire of Devour Magic (Rank 3)
+16383,Grimoire of Devour Magic (Rank 4)
+16384,Grimoire of Tainted Blood (Rank 1)
+16385,Grimoire of Tainted Blood (Rank 2)
+16386,Grimoire of Tainted Blood (Rank 3)
+16387,Grimoire of Tainted Blood (Rank 4)
+16388,Grimoire of Spell Lock (Rank 1)
+16389,Grimoire of Spell Lock (Rank 2)
+16390,Grimoire of Paranoia
+16391,Knight-Lieutenant's Silk Gloves
+16392,Knight-Lieutenant's Leather Boots
+16393,Knight-Lieutenant's Dragonhide Footwraps
+16396,Knight-Lieutenant's Leather Gauntlets
+16397,Knight-Lieutenant's Dragonhide Gloves
+16401,Knight-Lieutenant's Chain Boots
+16403,Knight-Lieutenant's Chain Gauntlets
+16405,Knight-Lieutenant's Plate Boots
+16406,Knight-Lieutenant's Plate Gauntlets
+16409,Knight-Lieutenant's Lamellar Sabatons
+16410,Knight-Lieutenant's Lamellar Gauntlets
+16413,Knight-Captain's Silk Raiment
+16414,Knight-Captain's Silk Leggings
+16415,Lieutenant Commander's Silk Spaulders
+16416,Lieutenant Commander's Crown
+16417,Knight-Captain's Leather Armor
+16418,Lieutenant Commander's Leather Veil
+16419,Knight-Captain's Leather Legguards
+16420,Lieutenant Commander's Leather Spaulders
+16421,Knight-Captain's Dragonhide Tunic
+16422,Knight-Captain's Dragonhide Leggings
+16423,Lieutenant Commander's Dragonhide Epaulets
+16424,Lieutenant Commander's Dragonhide Shroud
+16425,Knight-Captain's Chain Hauberk
+16426,Knight-Captain's Chain Leggings
+16427,Lieutenant Commander's Chain Pauldrons
+16428,Lieutenant Commander's Chain Helmet
+16429,Lieutenant Commander's Plate Helm
+16430,Knight-Captain's Plate Chestguard
+16431,Knight-Captain's Plate Leggings
+16432,Lieutenant Commander's Plate Pauldrons
+16433,Knight-Captain's Lamellar Breastplate
+16434,Lieutenant Commander's Lamellar Headguard
+16435,Knight-Captain's Lamellar Leggings
+16436,Lieutenant Commander's Lamellar Shoulders
+16437,Marshal's Silk Footwraps
+16440,Marshal's Silk Gloves
+16441,Field Marshal's Coronet
+16442,Marshal's Silk Leggings
+16443,Field Marshal's Silk Vestments
+16444,Field Marshal's Silk Spaulders
+16446,Marshal's Leather Footguards
+16448,Marshal's Dragonhide Gauntlets
+16449,Field Marshal's Dragonhide Spaulders
+16450,Marshal's Dragonhide Legguards
+16451,Field Marshal's Dragonhide Helmet
+16452,Field Marshal's Dragonhide Breastplate
+16453,Field Marshal's Leather Chestpiece
+16454,Marshal's Leather Handgrips
+16455,Field Marshal's Leather Mask
+16456,Marshal's Leather Leggings
+16457,Field Marshal's Leather Epaulets
+16459,Marshal's Dragonhide Boots
+16462,Marshal's Chain Boots
+16463,Marshal's Chain Grips
+16465,Field Marshal's Chain Helm
+16466,Field Marshal's Chain Breastplate
+16467,Marshal's Chain Legguards
+16468,Field Marshal's Chain Spaulders
+16471,Marshal's Lamellar Gloves
+16472,Marshal's Lamellar Boots
+16473,Field Marshal's Lamellar Chestplate
+16474,Field Marshal's Lamellar Faceguard
+16475,Marshal's Lamellar Legplates
+16476,Field Marshal's Lamellar Pauldrons
+16477,Field Marshal's Plate Armor
+16478,Field Marshal's Plate Helm
+16479,Marshal's Plate Legguards
+16480,Field Marshal's Plate Shoulderguards
+16483,Marshal's Plate Boots
+16484,Marshal's Plate Gauntlets
+16485,Blood Guard's Silk Footwraps
+16486,First Sergeant's Silk Cuffs
+16487,Blood Guard's Silk Gloves
+16489,Champion's Silk Hood
+16490,Legionnaire's Silk Pants
+16491,Legionnaire's Silk Robes
+16492,Champion's Silk Shoulderpads
+16494,Blood Guard's Dragonhide Boots
+16496,Blood Guard's Dragonhide Gauntlets
+16497,First Sergeant's Leather Armguards
+16498,Blood Guard's Leather Treads
+16499,Blood Guard's Leather Vices
+16501,Champion's Dragonhide Spaulders
+16502,Legionnaire's Dragonhide Trousers
+16503,Champion's Dragonhide Helm
+16504,Legionnaire's Dragonhide Breastplate
+16505,Legionnaire's Leather Hauberk
+16506,Champion's Leather Headguard
+16507,Champion's Leather Mantle
+16508,Legionnaire's Leather Leggings
+16509,Blood Guard's Plate Boots
+16510,Blood Guard's Plate Gloves
+16513,Legionnaire's Plate Armor
+16514,Champion's Plate Headguard
+16515,Legionnaire's Plate Legguards
+16516,Champion's Plate Pauldrons
+16518,Blood Guard's Mail Walkers
+16519,Blood Guard's Mail Grips
+16521,Champion's Mail Helm
+16522,Legionnaire's Mail Chestpiece
+16523,Legionnaire's Mail Leggings
+16524,Champion's Mail Shoulders
+16525,Legionnaire's Chain Breastplate
+16526,Champion's Chain Headguard
+16527,Legionnaire's Chain Leggings
+16528,Champion's Chain Pauldrons
+16530,Blood Guard's Chain Gauntlets
+16531,Blood Guard's Chain Boots
+16532,First Sergeant's Mail Wristguards
+16533,Warlord's Silk Cowl
+16534,General's Silk Trousers
+16535,Warlord's Silk Raiment
+16536,Warlord's Silk Amice
+16539,General's Silk Boots
+16540,General's Silk Handguards
+16541,Warlord's Plate Armor
+16542,Warlord's Plate Headpiece
+16543,General's Plate Leggings
+16544,Warlord's Plate Shoulders
+16545,General's Plate Boots
+16548,General's Plate Gauntlets
+16549,Warlord's Dragonhide Hauberk
+16550,Warlord's Dragonhide Helmet
+16551,Warlord's Dragonhide Epaulets
+16552,General's Dragonhide Leggings
+16554,General's Dragonhide Boots
+16555,General's Dragonhide Gloves
+16558,General's Leather Treads
+16560,General's Leather Mitts
+16561,Warlord's Leather Helm
+16562,Warlord's Leather Spaulders
+16563,Warlord's Leather Breastplate
+16564,General's Leather Legguards
+16565,Warlord's Chain Chestpiece
+16566,Warlord's Chain Helmet
+16567,General's Chain Legguards
+16568,Warlord's Chain Shoulders
+16569,General's Chain Boots
+16571,General's Chain Gloves
+16573,General's Mail Boots
+16574,General's Mail Gauntlets
+16577,Warlord's Mail Armor
+16578,Warlord's Mail Helm
+16579,General's Mail Leggings
+16580,Warlord's Mail Spaulders
+16583,Demonic Figurine
+17019,Arcane Dust
+17020,Arcane Powder
+17021,Wild Berries
+17026,Wild Thornroot
+17028,Holy Candle
+17029,Sacred Candle
+17030,Ankh
+17031,Rune of Teleportation
+17032,Rune of Portals
+17033,Symbol of Divinity
+17034,Maple Seed
+17035,Stranglethorn Seed
+17036,Ashwood Seed
+17037,Hornbeam Seed
+17038,Ironwood Seed
+17062,Recipe: Mithril Head Trout
+17119,Deeprun Rat Kabob
+17183,Dented Buckler
+17184,Small Shield
+17185,Round Buckler
+17186,Small Targe
+17187,Banded Buckler
+17188,Ringed Buckler
+17189,Metal Buckler
+17190,Ornate Buckler
+17192,Reinforced Targe
+17194,Holiday Spices
+17195,Fake Mistletoe
+17196,Holiday Spirits
+17200,Recipe: Gingerbread Cookie
+17201,Recipe: Egg Nog
+17202,Snowball
+17303,Blue Ribboned Wrapping Paper
+17304,Green Ribboned Wrapping Paper
+17307,Purple Ribboned Wrapping Paper
+17344,Candy Cane
+17349,Superior Healing Draught
+17352,Superior Mana Draught
+17402,Greatfather's Winter Ale
+17403,Steamwheedle Fizzy Spirits
+17404,Blended Bean Brew
+17405,Green Garden Tea
+17406,Holiday Cheesewheel
+17407,Graccu's Homemade Meat Pie
+17408,Spicy Beefstick
+17562,Knight-Lieutenant's Dreadweave Boots
+17564,Knight-Lieutenant's Dreadweave Gloves
+17566,Lieutenant Commander's Headguard
+17567,Knight-Captain's Dreadweave Leggings
+17568,Knight-Captain's Dreadweave Robe
+17569,Lieutenant Commander's Dreadweave Mantle
+17570,Champion's Dreadweave Hood
+17571,Legionnaire's Dreadweave Leggings
+17572,Legionnaire's Dreadweave Robe
+17573,Champion's Dreadweave Shoulders
+17576,Blood Guard's Dreadweave Boots
+17577,Blood Guard's Dreadweave Gloves
+17578,Field Marshal's Coronal
+17579,Marshal's Dreadweave Leggings
+17580,Field Marshal's Dreadweave Shoulders
+17581,Field Marshal's Dreadweave Robe
+17583,Marshal's Dreadweave Boots
+17584,Marshal's Dreadweave Gloves
+17586,General's Dreadweave Boots
+17588,General's Dreadweave Gloves
+17590,Warlord's Dreadweave Mantle
+17591,Warlord's Dreadweave Hood
+17592,Warlord's Dreadweave Robe
+17593,General's Dreadweave Pants
+17594,Knight-Lieutenant's Satin Boots
+17596,Knight-Lieutenant's Satin Gloves
+17598,Lieutenant Commander's Diadem
+17599,Knight-Captain's Satin Leggings
+17600,Knight-Captain's Satin Robes
+17601,Lieutenant Commander's Satin Amice
+17602,Field Marshal's Headdress
+17603,Marshal's Satin Pants
+17604,Field Marshal's Satin Mantle
+17605,Field Marshal's Satin Vestments
+17607,Marshal's Satin Sandals
+17608,Marshal's Satin Gloves
+17610,Champion's Satin Cowl
+17611,Legionnaire's Satin Trousers
+17612,Legionnaire's Satin Vestments
+17613,Champion's Satin Shoulderpads
+17616,Blood Guard's Satin Boots
+17617,Blood Guard's Satin Gloves
+17618,General's Satin Boots
+17620,General's Satin Gloves
+17622,Warlord's Satin Mantle
+17623,Warlord's Satin Cowl
+17624,Warlord's Satin Robes
+17625,General's Satin Leggings
+18046,Recipe: Tender Wolf Steak
+18241,Black War Steed Bridle
+18242,Reins of the Black War Tiger
+18243,Black Battlestrider
+18244,Black War Ram
+18245,Horn of the Black War Wolf
+18246,Whistle of the Black War Raptor
+18247,Black War Kodo
+18248,Red Skeletal Warhorse
+18256,Imbued Vial
+18269,Gordok Green Grog
+18284,Kreeg's Stout Beatdown
+18287,Evermurky
+18288,Molasses Firewater
+18427,Sergeant's Cloak
+18428,Senior Sergeant's Insignia
+18429,First Sergeant's Plate Bracers
+18430,First Sergeant's Plate Bracers
+18432,First Sergeant's Mail Wristguards
+18434,First Sergeant's Dragonhide Armguards
+18435,First Sergeant's Leather Armguards
+18436,First Sergeant's Dragonhide Armguards
+18437,First Sergeant's Silk Cuffs
+18440,Sergeant's Cape
+18441,Sergeant's Cape
+18442,Master Sergeant's Insignia
+18443,Master Sergeant's Insignia
+18444,Master Sergeant's Insignia
+18445,Sergeant Major's Plate Wristguards
+18447,Sergeant Major's Plate Wristguards
+18448,Sergeant Major's Chain Armguards
+18449,Sergeant Major's Chain Armguards
+18452,Sergeant Major's Leather Armsplints
+18453,Sergeant Major's Leather Armsplints
+18454,Sergeant Major's Dragonhide Armsplints
+18455,Sergeant Major's Dragonhide Armsplints
+18456,Sergeant Major's Silk Cuffs
+18457,Sergeant Major's Silk Cuffs
+18461,Sergeant's Cloak
+18567,Elemental Flux
+18606,Alliance Battle Standard
+18607,Horde Battle Standard
+18632,Moonbrook Riot Taffy
+18633,Styleen's Sour Suckerpop
+18635,Bellara's Nutterbar
+18662,Heavy Leather Ball
+18664,A Treatise on Military Ranks
+18675,Military Ranks of the Horde & Alliance
+18687,Xorothian Stardust
+18766,Reins of the Swift Frostsaber
+18767,Reins of the Swift Mistsaber
+18772,Swift Green Mechanostrider
+18773,Swift White Mechanostrider
+18774,Swift Yellow Mechanostrider
+18776,Swift Palomino
+18777,Swift Brown Steed
+18778,Swift White Steed
+18785,Swift White Ram
+18786,Swift Brown Ram
+18787,Swift Gray Ram
+18788,Swift Blue Raptor
+18789,Swift Olive Raptor
+18790,Swift Orange Raptor
+18791,Purple Skeletal Warhorse
+18793,Great White Kodo
+18794,Great Brown Kodo
+18795,Great Gray Kodo
+18796,Horn of the Swift Brown Wolf
+18797,Horn of the Swift Timber Wolf
+18798,Horn of the Swift Gray Wolf
+18802,Shadowy Potion
+18825,Grand Marshal's Aegis
+18826,High Warlord's Shield Wall
+18827,Grand Marshal's Handaxe
+18828,High Warlord's Cleaver
+18830,Grand Marshal's Sunderer
+18831,High Warlord's Battle Axe
+18833,Grand Marshal's Bullseye
+18834,Insignia of the Horde
+18835,High Warlord's Recurve
+18836,Grand Marshal's Repeater
+18837,High Warlord's Crossbow
+18838,Grand Marshal's Dirk
+18839,Combat Healing Potion
+18840,High Warlord's Razor
+18841,Combat Mana Potion
+18843,Grand Marshal's Right Hand Blade
+18844,High Warlord's Right Claw
+18845,Insignia of the Horde
+18846,Insignia of the Horde
+18847,Grand Marshal's Left Hand Blade
+18848,High Warlord's Left Claw
+18849,Insignia of the Horde
+18850,Insignia of the Horde
+18851,Insignia of the Horde
+18852,Insignia of the Horde
+18853,Insignia of the Horde
+18854,Insignia of the Alliance
+18855,Grand Marshal's Hand Cannon
+18856,Insignia of the Alliance
+18857,Insignia of the Alliance
+18858,Insignia of the Alliance
+18859,Insignia of the Alliance
+18860,High Warlord's Street Sweeper
+18862,Insignia of the Alliance
+18863,Insignia of the Alliance
+18864,Insignia of the Alliance
+18865,Grand Marshal's Punisher
+18866,High Warlord's Bludgeon
+18867,Grand Marshal's Battle Hammer
+18868,High Warlord's Pulverizer
+18869,Grand Marshal's Glaive
+18871,High Warlord's Pig Sticker
+18873,Grand Marshal's Stave
+18874,High Warlord's War Staff
+18876,Grand Marshal's Claymore
+18877,High Warlord's Greatsword
+18902,Reins of the Swift Stormsaber
+19027,Schematic: Snake Burst Firework
+19202,Plans: Heavy Timbermaw Belt
+19203,Plans: Girdle of the Dawn
+19204,Plans: Heavy Timbermaw Boots
+19205,Plans: Gloves of the Dawn
+19215,Pattern: Wisdom of the Timbermaw
+19216,Pattern: Argent Boots
+19217,Pattern: Argent Shoulders
+19218,Pattern: Mantle of the Timbermaw
+19221,Darkmoon Special Reserve
+19222,Cheap Beer
+19223,Darkmoon Dog
+19224,Red Hot Wings
+19225,Deep Fried Candybar
+19299,Fizzy Faire Drink
+19300,Bottled Winterspring Water
+19304,Spiced Beef Jerky
+19305,Pickled Kodo Foot
+19306,Crunchy Frog
+19326,Pattern: Might of the Timbermaw
+19327,Pattern: Timbermaw Brawlers
+19328,Pattern: Dawn Treaders
+19329,Pattern: Golden Mantle of the Dawn
+19442,Formula: Powerful Anti-Venom
+19445,Formula: Enchant Weapon - Agility
+19446,Formula: Enchant Bracer - Mana Regeneration
+19447,Formula: Enchant Bracer - Healing
+19483,Peeling the Onion
+19484,The Frostwolf Artichoke
+19764,Pattern: Bloodvine Vest
+19765,Pattern: Bloodvine Leggings
+19766,Pattern: Bloodvine Boots
+19769,Pattern: Primal Batskin Jerkin
+19770,Pattern: Primal Batskin Gloves
+19771,Pattern: Primal Batskin Bracers
+19772,Pattern: Blood Tiger Breastplate
+19773,Pattern: Blood Tiger Shoulders
+19776,Plans: Bloodsoul Breastplate
+19777,Plans: Bloodsoul Shoulders
+19778,Plans: Bloodsoul Gauntlets
+19779,Plans: Darksoul Breastplate
+19780,Plans: Darksoul Leggings
+19781,Plans: Darksoul Shoulders
+19974,Mudskunk Lure
+20000,Schematic: Bloodvine Goggles
+20001,Schematic: Bloodvine Lens
+20011,Recipe: Mageblood Potion
+20012,Recipe: Greater Dreamless Sleep
+20013,Recipe: Living Action Potion
+20014,Recipe: Major Troll's Blood Potion
+20041,Highlander's Plate Girdle
+20042,Highlander's Lamellar Girdle
+20043,Highlander's Chain Girdle
+20045,Highlander's Leather Girdle
+20046,Highlander's Lizardhide Girdle
+20047,Highlander's Cloth Girdle
+20048,Highlander's Plate Greaves
+20049,Highlander's Lamellar Greaves
+20050,Highlander's Chain Greaves
+20052,Highlander's Leather Boots
+20053,Highlander's Lizardhide Boots
+20054,Highlander's Cloth Boots
+20055,Highlander's Chain Pauldrons
+20057,Highlander's Plate Spaulders
+20058,Highlander's Lamellar Spaulders
+20059,Highlander's Leather Shoulders
+20060,Highlander's Lizardhide Shoulders
+20061,Highlander's Epaulets
+20068,Deathguard's Cloak
+20069,Ironbark Staff
+20070,Sageclaw
+20071,Talisman of Arathor
+20072,Defiler's Talisman
+20073,Cloak of the Honor Guard
+20075,Recipe: Heavy Crocolisk Stew
+20088,Highlander's Chain Girdle
+20089,Highlander's Chain Girdle
+20090,Highlander's Chain Girdle
+20091,Highlander's Chain Greaves
+20092,Highlander's Chain Greaves
+20093,Highlander's Chain Greaves
+20094,Highlander's Cloth Boots
+20095,Highlander's Cloth Boots
+20096,Highlander's Cloth Boots
+20097,Highlander's Cloth Girdle
+20098,Highlander's Cloth Girdle
+20099,Highlander's Cloth Girdle
+20100,Highlander's Lizardhide Boots
+20101,Highlander's Lizardhide Boots
+20102,Highlander's Lizardhide Boots
+20103,Highlander's Lizardhide Girdle
+20104,Highlander's Lizardhide Girdle
+20105,Highlander's Lizardhide Girdle
+20106,Highlander's Lamellar Girdle
+20107,Highlander's Lamellar Girdle
+20108,Highlander's Lamellar Girdle
+20109,Highlander's Lamellar Greaves
+20110,Highlander's Lamellar Greaves
+20111,Highlander's Lamellar Greaves
+20112,Highlander's Leather Boots
+20113,Highlander's Leather Boots
+20114,Highlander's Leather Boots
+20115,Highlander's Leather Girdle
+20116,Highlander's Leather Girdle
+20117,Highlander's Leather Girdle
+20124,Highlander's Plate Girdle
+20125,Highlander's Plate Girdle
+20126,Highlander's Plate Girdle
+20127,Highlander's Plate Greaves
+20128,Highlander's Plate Greaves
+20129,Highlander's Plate Greaves
+20150,Defiler's Chain Girdle
+20151,Defiler's Chain Girdle
+20152,Defiler's Chain Girdle
+20153,Defiler's Chain Girdle
+20154,Defiler's Chain Greaves
+20155,Defiler's Chain Greaves
+20156,Defiler's Chain Greaves
+20157,Defiler's Chain Greaves
+20158,Defiler's Chain Pauldrons
+20159,Defiler's Cloth Boots
+20160,Defiler's Cloth Boots
+20161,Defiler's Cloth Boots
+20162,Defiler's Cloth Boots
+20163,Defiler's Cloth Girdle
+20164,Defiler's Cloth Girdle
+20165,Defiler's Cloth Girdle
+20166,Defiler's Cloth Girdle
+20167,Defiler's Lizardhide Boots
+20168,Defiler's Lizardhide Boots
+20169,Defiler's Lizardhide Boots
+20170,Defiler's Lizardhide Boots
+20171,Defiler's Lizardhide Girdle
+20172,Defiler's Lizardhide Girdle
+20173,Defiler's Lizardhide Girdle
+20174,Defiler's Lizardhide Girdle
+20175,Defiler's Lizardhide Shoulders
+20176,Defiler's Epaulets
+20186,Defiler's Leather Boots
+20187,Defiler's Leather Boots
+20188,Defiler's Leather Boots
+20189,Defiler's Leather Boots
+20190,Defiler's Leather Girdle
+20191,Defiler's Leather Girdle
+20192,Defiler's Leather Girdle
+20193,Defiler's Leather Girdle
+20194,Defiler's Leather Shoulders
+20195,Defiler's Mail Girdle
+20196,Defiler's Mail Girdle
+20197,Defiler's Mail Girdle
+20198,Defiler's Mail Girdle
+20199,Defiler's Mail Greaves
+20200,Defiler's Mail Greaves
+20201,Defiler's Mail Greaves
+20202,Defiler's Mail Greaves
+20203,Defiler's Mail Pauldrons
+20204,Defiler's Plate Girdle
+20205,Defiler's Plate Girdle
+20206,Defiler's Plate Girdle
+20207,Defiler's Plate Girdle
+20208,Defiler's Plate Greaves
+20209,Defiler's Plate Greaves
+20210,Defiler's Plate Greaves
+20211,Defiler's Plate Greaves
+20212,Defiler's Plate Spaulders
+20214,Mindfang
+20220,Ironbark Staff
+20222,Defiler's Enriched Ration
+20223,Defiler's Field Ration
+20224,Defiler's Iron Ration
+20225,Highlander's Enriched Ration
+20226,Highlander's Field Ration
+20227,Highlander's Iron Ration
+20232,Defiler's Mageweave Bandage
+20234,Defiler's Runecloth Bandage
+20235,Defiler's Silk Bandage
+20237,Highlander's Mageweave Bandage
+20243,Highlander's Runecloth Bandage
+20244,Highlander's Silk Bandage
+20253,Pattern: Warbear Harness
+20254,Pattern: Warbear Woolies
+20382,Pattern: Dreamscale Breastplate
+20387,Forsaken Stink Bomb Cluster
+20506,Pattern: Spitfire Bracers
+20507,Pattern: Spitfire Gauntlets
+20508,Pattern: Spitfire Breastplate
+20509,Pattern: Sandstalker Bracers
+20510,Pattern: Sandstalker Gauntlets
+20511,Pattern: Sandstalker Breastplate
+20604,Stink Bomb Cleaner
+20732,Formula: Enchant Cloak - Greater Fire Resistance
+20733,Formula: Enchant Cloak - Greater Nature Resistance
+20752,Formula: Minor Mana Oil
+20753,Formula: Lesser Wizard Oil
+20754,Formula: Lesser Mana Oil
+20755,Formula: Wizard Oil
+20756,Formula: Brilliant Wizard Oil
+20757,Formula: Brilliant Mana Oil
+20758,Formula: Minor Wizard Oil
+21030,Darnassus Kimchi Pie
+21031,Cabbage Kimchi
+21033,Radish Kimchi
+21099,Recipe: Smoked Sagefish
+21115,Defiler's Talisman
+21116,Defiler's Talisman
+21117,Talisman of Arathor
+21118,Talisman of Arathor
+21119,Talisman of Arathor
+21120,Defiler's Talisman
+21177,Symbol of Kings
+21219,Recipe: Sagefish Delight
+21358,Pattern: Soul Pouch
+21552,Striped Yellowtail
+21557,Small Red Rocket
+21558,Small Blue Rocket
+21559,Small Green Rocket
+21571,Blue Rocket Cluster
+21574,Green Rocket Cluster
+21576,Red Rocket Cluster
+21721,Moonglow
+21747,Festival Firecracker
+21815,Love Token
+21829,Perfume Bottle
+21833,Cologne Bottle
+21939,Fel Elemental Rod
+22014,Hallowed Brazier
+22209,Plans: Heavy Obsidian Belt
+22214,Plans: Light Obsidian Belt
+22250,Herb Pouch
+22307,Pattern: Enchanted Mageweave Pouch
+22308,Pattern: Enchanted Runecloth Bag
+22310,Pattern: Cenarion Herb Bag
+22312,Pattern: Satchel of Cenarius
+22324,Winter Kimchi
+22392,Formula: Enchant 2H Weapon - Agility
+22683,Pattern: Gaea's Embrace
+22766,Plans: Ironvine Breastplate
+22767,Plans: Ironvine Gloves
+22768,Plans: Ironvine Belt
+22769,Pattern: Bramblewood Belt
+22770,Pattern: Bramblewood Boots
+22771,Pattern: Bramblewood Helm
+22772,Pattern: Sylvan Shoulders
+22773,Pattern: Sylvan Crown
+22774,Pattern: Sylvan Vest
+22843,Blood Guard's Chain Greaves
+22852,Blood Guard's Dragonhide Treads
+22855,Blood Guard's Dreadweave Walkers
+22856,Blood Guard's Leather Walkers
+22857,Blood Guard's Mail Greaves
+22858,Blood Guard's Plate Greaves
+22859,Blood Guard's Satin Walkers
+22860,Blood Guard's Silk Walkers
+22862,Blood Guard's Chain Vices
+22863,Blood Guard's Dragonhide Grips
+22864,Blood Guard's Leather Grips
+22865,Blood Guard's Dreadweave Handwraps
+22867,Blood Guard's Mail Vices
+22868,Blood Guard's Plate Gauntlets
+22869,Blood Guard's Satin Handwraps
+22870,Blood Guard's Silk Handwraps
+22872,Legionnaire's Plate Hauberk
+22873,Legionnaire's Plate Leggings
+22874,Legionnaire's Chain Hauberk
+22875,Legionnaire's Chain Legguards
+22876,Legionnaire's Mail Hauberk
+22877,Legionnaire's Dragonhide Chestpiece
+22878,Legionnaire's Dragonhide Leggings
+22879,Legionnaire's Leather Chestpiece
+22880,Legionnaire's Leather Legguards
+22881,Legionnaire's Dreadweave Legguards
+22882,Legionnaire's Satin Legguards
+22883,Legionnaire's Silk Legguards
+22884,Legionnaire's Dreadweave Tunic
+22885,Legionnaire's Satin Tunic
+22886,Legionnaire's Silk Tunic
+22887,Legionnaire's Mail Legguards
+23160,Friendship Bread
+23161,Freshly-Squeezed Lemonade
+23243,Champion's Plate Shoulders
+23244,Champion's Plate Helm
+23251,Champion's Chain Helm
+23252,Champion's Chain Shoulders
+23253,Champion's Dragonhide Headguard
+23254,Champion's Dragonhide Shoulders
+23255,Champion's Dreadweave Cowl
+23256,Champion's Dreadweave Spaulders
+23257,Champion's Leather Helm
+23258,Champion's Leather Shoulders
+23259,Champion's Mail Headguard
+23260,Champion's Mail Pauldrons
+23261,Champion's Satin Hood
+23262,Champion's Satin Mantle
+23263,Champion's Silk Cowl
+23264,Champion's Silk Mantle
+23272,Knight-Captain's Lamellar Breastplate
+23273,Knight-Captain's Lamellar Leggings
+23274,Knight-Lieutenant's Lamellar Gauntlets
+23275,Knight-Lieutenant's Lamellar Sabatons
+23276,Lieutenant Commander's Lamellar Headguard
+23277,Lieutenant Commander's Lamellar Shoulders
+23278,Knight-Lieutenant's Chain Greaves
+23279,Knight-Lieutenant's Chain Vices
+23280,Knight-Lieutenant's Dragonhide Grips
+23281,Knight-Lieutenant's Dragonhide Treads
+23282,Knight-Lieutenant's Dreadweave Handwraps
+23283,Knight-Lieutenant's Dreadweave Walkers
+23284,Knight-Lieutenant's Leather Grips
+23285,Knight-Lieutenant's Leather Walkers
+23286,Knight-Lieutenant's Plate Gauntlets
+23287,Knight-Lieutenant's Plate Greaves
+23288,Knight-Lieutenant's Satin Handwraps
+23289,Knight-Lieutenant's Satin Walkers
+23290,Knight-Lieutenant's Silk Handwraps
+23291,Knight-Lieutenant's Silk Walkers
+23292,Knight-Captain's Chain Hauberk
+23293,Knight-Captain's Chain Legguards
+23294,Knight-Captain's Dragonhide Chestpiece
+23295,Knight-Captain's Dragonhide Leggings
+23296,Knight-Captain's Dreadweave Legguards
+23297,Knight-Captain's Dreadweave Tunic
+23298,Knight-Captain's Leather Chestpiece
+23299,Knight-Captain's Leather Legguards
+23300,Knight-Captain's Plate Hauberk
+23301,Knight-Captain's Plate Leggings
+23302,Knight-Captain's Satin Legguards
+23303,Knight-Captain's Satin Tunic
+23304,Knight-Captain's Silk Legguards
+23305,Knight-Captain's Silk Tunic
+23306,Lieutenant Commander's Chain Helm
+23307,Lieutenant Commander's Chain Shoulders
+23308,Lieutenant Commander's Dragonhide Headguard
+23309,Lieutenant Commander's Dragonhide Shoulders
+23310,Lieutenant Commander's Dreadweave Cowl
+23311,Lieutenant Commander's Dreadweave Spaulders
+23312,Lieutenant Commander's Leather Helm
+23313,Lieutenant Commander's Leather Shoulders
+23314,Lieutenant Commander's Plate Helm
+23315,Lieutenant Commander's Plate Shoulders
+23316,Lieutenant Commander's Satin Hood
+23317,Lieutenant Commander's Satin Mantle
+23318,Lieutenant Commander's Silk Cowl
+23319,Lieutenant Commander's Silk Mantle
+23451,Grand Marshal's Mageblade
+23452,Grand Marshal's Tome of Power
+23453,Grand Marshal's Tome of Restoration
+23454,Grand Marshal's Warhammer
+23455,Grand Marshal's Demolisher
+23456,Grand Marshal's Swiftblade
+23464,High Warlord's Battle Mace
+23465,High Warlord's Destroyer
+23466,High Warlord's Spellblade
+23467,High Warlord's Quickblade
+23468,High Warlord's Tome of Destruction
+23469,High Warlord's Tome of Mending

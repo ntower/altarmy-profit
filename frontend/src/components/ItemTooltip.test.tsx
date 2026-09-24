@@ -19,7 +19,7 @@ describe('ItemTooltip', () => {
     expect(screen.getByText('Requires Tailoring (50)')).toBeInTheDocument()
     expect(screen.getByText('"Soft and green."')).toBeInTheDocument()
     expect(line('Sell Price: 2 16')).toBeInTheDocument()
-    expect(screen.queryByText('Auction:')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Auction:|Vendor:/)).not.toBeInTheDocument()
     expect(screen.getByRole('presentation')).toHaveAttribute(
       'src',
       'https://wow.zamimg.com/images/wow/icons/large/inv_chest_cloth_39.jpg',
@@ -31,6 +31,11 @@ describe('ItemTooltip', () => {
     expect(line('Auction: 20')).toBeInTheDocument()
     expect(screen.queryByText(/Binds|Requires/)).not.toBeInTheDocument()
     expect(screen.queryByRole('presentation')).not.toBeInTheDocument()
+  })
+
+  it('adds the vendor price of vendor-sold items', () => {
+    renderWithProviders(<ItemTooltip item={thread} />)
+    expect(line('Vendor: 1')).toBeInTheDocument()
   })
 
   it('shows reagents above the crafted item on a recipe', () => {

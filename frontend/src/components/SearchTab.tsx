@@ -1,28 +1,59 @@
-import { useState } from 'react'
-import { Alert, Group, Loader, MultiSelect, NumberInput, Stack } from '@mantine/core'
+import { Alert, Group, Loader, NumberInput, Select, Stack, Switch, Text } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
-import { useProfessions, useRank, useStatus } from '../api/queries'
+import { z } from 'zod'
+import type { CharacterGroup, Selection } from '../api/client'
+import { useCharacters, useRank, useSelectRealm, useStatus } from '../api/queries'
 import { goldToCopper } from '../lib/money'
+import { useStoredState } from '../lib/storage'
 import { ResultsTable } from './ResultsTable'
 
 const asNumber = (v: number | string, fallback: number) => (typeof v === 'number' ? v : fallback)
 
-function Results({ professions, minGold, top }: { professions: string[]; minGold: number; top: number }) {
-  const rank = useRank(professions, goldToCopper(minGold), top)
+// Realms may contain spaces but never tabs.
+const toKey = (s: Selection) => `${s.realm}\t${s.faction}`
+const fromKey = (key: string): Selection => {
+  const [realm = '', faction = ''] = key.split('\t')
+  return { realm, faction }
+}
+
+function Results({ includeUnlearned, minGold, top }: { includeUnlearned: boolean; minGold: number; top: number }) {
+  const rank = useRank(includeUnlearned, goldToCopper(minGold), top)
   if (rank.isPending) return <Loader />
   if (rank.isError) return <Alert color="red">{rank.error.message}</Alert>
   if (!rank.data.results.length) {
-    return <Alert>No profitable recipes found for these professions with the current prices.</Alert>
+    return <Alert>No profitable recipes found for these characters with the current prices.</Alert>
   }
   return <ResultsTable results={rank.data.results} items={rank.data.items} />
 }
 
+function CharacterList({ group }: { group: CharacterGroup }) {
+  return (
+    <Stack gap={2}>
+      {group.characters.map((c) => (
+        <Text key={c.name} size="sm">
+          <b>{c.name}</b>{' '}
+          <Text span c="dimmed" size="sm">
+            {c.level}
+            {c.professions.length ? ': ' : ''}
+            {c.professions.map((p) => `${p.name} ${p.rank}/${p.max_rank}`).join(', ')}
+          </Text>
+        </Text>
+      ))}
+    </Stack>
+  )
+}
+
 export function SearchTab() {
   const status = useStatus()
-  const professions = useProfessions()
-  const [picked, setPicked] = useState<string[]>([])
-  const [minGold, setMinGold] = useState(0)
-  const [top, setTop] = useState(25)
+  const characters = useCharacters()
+  const select = useSelectRealm()
+  const [includeUnlearned, setIncludeUnlearned] = useStoredState(
+    'wowprofit.search.includeUnlearned',
+    z.boolean(),
+    false,
+  )
+  const [minGold, setMinGold] = useStoredState('wowprofit.search.minGold', z.number(), 0)
+  const [top, setTop] = useStoredState('wowprofit.search.top', z.int().min(1).max(500), 25)
   const [debouncedMinGold] = useDebouncedValue(minGold, 300)
 
   if (status.isPending) return <Loader />
@@ -35,17 +66,26 @@ export function SearchTab() {
     )
   }
 
+  const groups = characters.data?.groups ?? []
+  // Show the realm being switched to while the server imports its prices.
+  const selection = select.isPending ? select.variables : status.data.selection
+  const group = groups.find((g) => selection && toKey(g) === toKey(selection))
+
   return (
     <Stack>
+      {status.data.warnings.map((w) => (
+        <Alert key={w} color="yellow">
+          {w}
+        </Alert>
+      ))}
       <Group align="flex-end" wrap="wrap">
-        <MultiSelect
-          label="Professions"
-          placeholder={picked.length ? undefined : 'Pick professions'}
-          data={professions.data ?? []}
-          value={picked}
-          onChange={setPicked}
-          searchable
-          clearable
+        <Select
+          label="Realm and faction"
+          placeholder="No characters"
+          data={groups.map((g) => ({ value: toKey(g), label: `${g.realm} (${g.faction})` }))}
+          value={selection ? toKey(selection) : null}
+          onChange={(key) => key && select.mutate(fromKey(key))}
+          allowDeselect={false}
           style={{ flex: 3, minWidth: 260 }}
         />
         <NumberInput
@@ -68,11 +108,20 @@ export function SearchTab() {
           style={{ flex: 1, minWidth: 120 }}
         />
       </Group>
-      {status.data.prices === 0 && <Alert color="yellow">No prices yet. Import them on the Manage tab.</Alert>}
-      {picked.length ? (
-        <Results professions={picked} minGold={debouncedMinGold} top={top} />
+      <Switch
+        label="Include recipes not learned yet"
+        description="Every recipe of these characters' professions, not just the ones they know."
+        checked={includeUnlearned}
+        onChange={(e) => setIncludeUnlearned(e.currentTarget.checked)}
+      />
+      {group && <CharacterList group={group} />}
+      {status.data.prices === 0 && (
+        <Alert color="yellow">No prices yet. Scan the auction house with Auctionator, then /reload.</Alert>
+      )}
+      {status.data.selection ? (
+        <Results includeUnlearned={includeUnlearned} minGold={debouncedMinGold} top={top} />
       ) : (
-        <Alert>Pick the professions you have.</Alert>
+        <Alert>No characters yet. Install the Alt Army addon, log in, or set its file on the Manage tab.</Alert>
       )}
     </Stack>
   )

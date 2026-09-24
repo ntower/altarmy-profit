@@ -63,6 +63,11 @@ function ItemLines({ item }: { item: ItemInfo }) {
           Auction: <Coins copper={item.ah_price} />
         </div>
       )}
+      {item.vendor_price != null && (
+        <div>
+          Vendor: <Coins copper={item.vendor_price} />
+        </div>
+      )}
     </>
   )
 }
@@ -115,6 +120,69 @@ export function RecipeTooltip({
         </div>
       )}
     </TooltipFrame>
+  )
+}
+
+type Material = RankResult['exits'][number]['materials'][number]
+
+const countRange = ({ min_count, max_count }: Material) =>
+  min_count === max_count ? `×${min_count}` : `×${min_count}-${max_count}`
+
+/** What disenchanting one `name` yields: each material's count, chance and expected AH value, then the total. */
+export function DisenchantTooltip({
+  name,
+  materials,
+  value,
+  items,
+}: {
+  name: string
+  materials: Material[]
+  value: number
+  items: ItemMap
+}) {
+  return (
+    <TooltipFrame icon={null}>
+      <div className={classes.title}>Disenchanting {name}</div>
+      {materials.map((m) => {
+        const item = items[m.item_id]
+        return (
+          <div key={m.item_id} className={classes.split}>
+            <span className={classes.material}>
+              <Icon icon={item?.icon ?? null} size="small" className={classes.smallIcon} />
+              <span style={{ color: qualityColor(item?.quality ?? 1) }}>{m.name}</span> {countRange(m)} (
+              {Math.round(m.chance * 100)}%)
+            </span>
+            {m.value == null ? <span className={classes.dim}>no price</span> : <Coins copper={m.value} />}
+          </div>
+        )
+      })}
+      <div className={classes.section}>
+        Expected: <Coins copper={value} />
+      </div>
+    </TooltipFrame>
+  )
+}
+
+/** Hover `children` for the disenchant breakdown of `result`'s output; plain children if it has none. */
+export function DisenchantHover({
+  result,
+  items,
+  children,
+}: {
+  result: RankResult
+  items: ItemMap
+  children: ReactNode
+}) {
+  const exit = result.exits.find((e) => e.kind === 'disenchant')
+  if (!exit) return <>{children}</>
+  return (
+    <Hover
+      tooltip={
+        <DisenchantTooltip name={result.output_name} materials={exit.materials} value={exit.value} items={items} />
+      }
+    >
+      {children}
+    </Hover>
   )
 }
 

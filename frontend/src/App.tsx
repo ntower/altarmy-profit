@@ -1,8 +1,11 @@
 import { Container, Tabs, Title } from '@mantine/core'
+import { useAutoUpdateGameData, useSyncNotifications } from './api/queries'
 import { ManageTab } from './components/ManageTab'
 import { SearchTab } from './components/SearchTab'
 
 export function App() {
+  useAutoUpdateGameData()
+  useSyncNotifications()
   return (
     <Container size="xl" py="md">
       <Title order={1} mb="md">

@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 
 from . import prices
+from .altarmy import Character, Profession
 from .engine import DisenchantRow, Item, Market, Recipe
 
 DISENCHANT_CSV = Path("data/disenchant.csv")
+VENDOR_CSV = Path("data/vendor_items.csv")
 CACHE_DIR = Path("cache")
 SQLITE_MAX_VARIABLES = 900  # stay under older SQLite builds' 999 bound parameters
 
@@ -38,8 +40,19 @@ class ItemDetails:
 
 def load_market(conn: sqlite3.Connection) -> Market:
     items = {
-        r["id"]: Item(r["id"], r["name"], r["quality"], r["item_level"], r["class_id"], r["sell_price"])
-        for r in conn.execute("SELECT * FROM items")
+        r["id"]: Item(
+            r["id"],
+            r["name"],
+            r["quality"],
+            r["item_level"],
+            r["class_id"],
+            r["sell_price"],
+            -(-r["buy_price"] // r["buy_count"]) if r["sold"] and r["buy_price"] > 0 else None,
+        )
+        for r in conn.execute(
+            "SELECT i.*, v.item_id IS NOT NULL AS sold FROM items i"
+            " LEFT JOIN vendor_items v ON v.item_id = i.id"
+        )
     }
     reagents: dict[int, list[tuple[int, int]]] = {}
     for r in conn.execute("SELECT recipe_id, item_id, count FROM recipe_reagents"):
@@ -53,6 +66,7 @@ def load_market(conn: sqlite3.Connection) -> Market:
             tuple(reagents.get(r["id"], ())),
             r["skill_name"],
             r["min_skill"],
+            r["spell_id"],
         )
         for r in conn.execute("SELECT * FROM recipes")
     ]
@@ -71,3 +85,43 @@ def load_item_details(conn: sqlite3.Connection, ids: Iterable[int]) -> dict[int,
         for r in conn.execute(query, chunk):
             out[r["id"]] = ItemDetails(*r)
     return out
+
+
+def save_characters(conn: sqlite3.Connection, chars: Sequence[Character]) -> None:
+    """Replace every stored character with `chars` (Alt Army's file is the source of truth)."""
+    with conn:
+        for table in ("character_recipes", "character_professions", "characters"):
+            conn.execute(f"DELETE FROM {table}")
+        for c in chars:
+            cur = conn.execute(
+                "INSERT INTO characters(realm, name, faction, class_file, level) VALUES (?,?,?,?,?)",
+                (c.realm, c.name, c.faction, c.class_file, c.level),
+            )
+            for p in c.professions:
+                conn.execute(
+                    "INSERT INTO character_professions VALUES (?,?,?,?)",
+                    (cur.lastrowid, p.name, p.rank, p.max_rank),
+                )
+                conn.executemany(
+                    "INSERT INTO character_recipes VALUES (?,?,?)",
+                    [(cur.lastrowid, p.name, spell) for spell in sorted(p.recipe_ids)],
+                )
+
+
+def load_characters(conn: sqlite3.Connection) -> list[Character]:
+    """Stored characters sorted by realm then name, professions sorted by name."""
+    recipes: dict[tuple[int, str], set[int]] = {}
+    for r in conn.execute("SELECT * FROM character_recipes"):
+        recipes.setdefault((r["character_id"], r["skill_name"]), set()).add(r["spell_id"])
+    profs: dict[int, list[Profession]] = {}
+    for r in conn.execute("SELECT * FROM character_professions ORDER BY skill_name"):
+        key = (r["character_id"], r["skill_name"])
+        profs.setdefault(r["character_id"], []).append(
+            Profession(r["skill_name"], r["rank"], r["max_rank"], frozenset(recipes.get(key, ())))
+        )
+    return [
+        Character(
+            r["realm"], r["name"], r["faction"], r["class_file"], r["level"], tuple(profs.get(r["id"], ()))
+        )
+        for r in conn.execute("SELECT * FROM characters ORDER BY realm, name")
+    ]

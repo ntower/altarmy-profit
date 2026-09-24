@@ -49,6 +49,14 @@ def find_auctionator_files(roots: Iterable[Path] = WOW_ROOTS) -> list[Path]:
     return found
 
 
+def find_altarmy_files(roots: Iterable[Path] = WOW_ROOTS) -> list[Path]:
+    """Alt Army's account-wide SavedVariables (characters, professions, recipes) under each WoW install."""
+    found: list[Path] = []
+    for root in roots:
+        found += sorted(root.glob("_*_/WTF/Account/*/SavedVariables/AltArmy_TBC.lua"))
+    return found
+
+
 def auctionator_realms(path: Path) -> list[str]:
     return sorted(auctionator.parse_price_database(path.read_bytes()))
 
@@ -76,6 +84,18 @@ def import_auctionator(
         set_price(conn, item_id, price, "auctionator")
     conn.commit()
     return realm, len(item_prices), len(item_prices.keys() - known)
+
+
+def replace_auctionator_prices(conn: sqlite3.Connection, item_prices: dict[int, int]) -> int:
+    """Swap every Auctionator price for `item_prices` (one realm's scan), so realms never mix.
+
+    Manual, CSV and vendor prices stay, unless the scan has a price for the same item. Returns the count.
+    """
+    with conn:
+        conn.execute("DELETE FROM prices WHERE source = 'auctionator'")
+        for item_id, price in item_prices.items():
+            set_price(conn, item_id, price, "auctionator")
+    return len(item_prices)
 
 
 def set_price(conn: sqlite3.Connection, item_id: int, price: int, source: str = "manual") -> None:

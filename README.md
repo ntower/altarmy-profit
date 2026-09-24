@@ -4,7 +4,7 @@ Local tool that finds profitable crafting recipes and production chains for **Wo
 
 - Items and recipes come from the client's DB2 tables (via [wago.tools](https://wago.tools/) CSV exports) into a local SQLite file.
 - You supply auction house prices (CSV import for now).
-- The engine ranks recipes by profit: reagent cost (buy, or craft an intermediate if cheaper) vs. the best of vendor sale, AH sale (minus the 5% cut) and expected disenchant value.
+- The engine ranks recipes by profit: reagent cost (buy from a vendor or the AH, or craft an intermediate if cheaper) vs. the best of vendor sale, AH sale (minus the 5% cut) and expected disenchant value.
 
 ## Setup
 
@@ -26,8 +26,9 @@ wowprofit ingest                          # downloads DB2 tables into cache/, bu
 wowprofit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
 wowprofit import-prices prices.csv        # columns: item_id (or name), price   (copper)
 wowprofit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\Auctionator.lua"
+wowprofit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\AltArmy_TBC.lua"
 wowprofit set-price 2589 250              # one item, copper
-wowprofit rank --top 25 --skill Tailoring
+wowprofit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
 wowprofit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
 ```
 
@@ -36,12 +37,22 @@ one) and stores each item's latest minimum buyout. WoW writes SavedVariables on 
 so do one of those after scanning. Add `--realm "<name>"` if the file holds several realms (the error
 lists them). Items missing from a scan keep their previous price.
 
+`import-altarmy` reads the [Alt Army](../altarmy_tbc) addon's account-wide SavedVariables: your
+characters, their professions and the recipes they have learned. `rank` then only ranks what the
+characters of one realm and faction can craft (chains may use any of their recipes, whoever knows them).
+
 The web UI is a React app (`frontend/`) served by a local FastAPI server (`wowprofit ui`); build
-it once with `npm run build` in `frontend/`. It has two tabs. **Search** ranks recipes for the professions you pick. **Manage** has
-buttons to download the latest game data (the newest `wow_classic_beta` build on wago.tools; prices
-are kept) and to import Auctionator prices. It finds `Auctionator.lua` under the usual WoW install
-folders, preferring `_classic_beta_`, and you can paste another path. It remembers the file and realm
-you last imported.
+it once with `npm run build` in `frontend/`. It has two tabs:
+
+- **Search** ranks what your characters on the chosen realm and faction can craft, and names who
+  crafts each recipe. A switch adds recipes of their professions they have not learned yet.
+- **Manage** downloads the latest game data (the newest `wow_classic_beta` build on wago.tools; prices
+  are kept) and shows the addon files in use.
+
+The UI reads `AltArmy_TBC.lua` and `Auctionator.lua` itself: it finds them under the usual WoW install
+folders (preferring `_classic_beta_`; paste another path on Manage) and re-imports either one whenever
+WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator scan and replace
+the previous realm's.
 
 ### Front-end development
 
@@ -68,7 +79,12 @@ Coarse Thread,120
   assumed uniform. Coverage: greens ilvl 5–65, blues 11–65, epics 40–80; items outside those
   ranges get no disenchant value. Forever-specific rates are not yet published — verify against
   Wowhead's Forever database as data comes in, then re-run `wowprofit ingest`.
-- **Vendor-sold reagents:** DB2 doesn't say which vendor sells what. Enter vendor prices as ordinary prices.
+- **Vendor-sold items are not in DB2** (vendor inventories are server-side). `data/vendor_items.csv`
+  (`item_id,name`) lists the items vanilla vendors sell with unlimited stock and no reputation or event
+  condition, taken from [vmangos](https://github.com/vmangos/core)' world database by
+  `python scripts/build_vendor_items.py`. The price is DB2's `BuyPrice` per `VendorStackCount`, rounded up
+  to whole copper. Reagents are bought from whichever of vendor and AH is cheaper. Forever may differ from
+  vanilla; edit the CSV and re-run `wowprofit ingest` if a vendor item is missing or wrong.
 - Recipe output count is derived from `SpellEffect.EffectBasePointsF`; verify against known recipes.
 
 ## Layout
@@ -76,6 +92,7 @@ Coarse Thread,120
 - `src/wowprofit/ingest.py` – download + load DB2 CSVs
 - `src/wowprofit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
 - `src/wowprofit/prices.py` – price sources (CSV, Auctionator SavedVariables via `auctionator.py`)
+- `src/wowprofit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
 - `src/wowprofit/store.py` – load SQLite into engine dataclasses
 - `src/wowprofit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/wowprofit/cli.py` – command line

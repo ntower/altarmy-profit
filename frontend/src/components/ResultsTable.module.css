@@ -1,0 +1,5 @@
+/* The expanded details row holds the flow chart and step list; keep it plain, not striped or hover-highlighted. */
+tr.details,
+tr.details:hover {
+  background-color: transparent;
+}

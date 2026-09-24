@@ -9,6 +9,11 @@ import pytest
 
 from wowprofit import db
 
+from .test_altarmy import ALTARMY_SV
+from .test_auctionator import _entry, _saved_variables
+
+SV_DIR = "_classic_beta_/WTF/Account/ACCT/SavedVariables"  # under `wow_root`
+
 
 def write_csv(path: Path, header: list[str], rows: list[dict[str, object]]) -> Path:
     with open(path, "w", newline="", encoding="utf-8") as f:
@@ -21,6 +26,8 @@ def write_csv(path: Path, header: list[str], rows: list[dict[str, object]]) -> P
 @pytest.fixture
 def db2_paths(tmp_path: Path) -> dict[str, Path]:
     """Items: 1 Linen Cloth, 2 Coarse Thread, 3 Green Robe. One Tailoring recipe (10 linen + 1 thread).
+
+    Vendors sell thread in stacks of 5 (see `vendor_csv`).
 
     The robe carries tooltip data: a chest (robe) slot, Cloth subclass, BoE, level/skill requirements,
     flavor text and an icon.
@@ -46,6 +53,7 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
                 "RequiredLevel",
                 "SellPrice",
                 "BuyPrice",
+                "VendorStackCount",
                 "Bonding",
                 "InventoryType",
                 "ItemDelay",
@@ -67,6 +75,8 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
                     "Display_lang": "Coarse Thread",
                     "OverallQualityID": 1,
                     "SellPrice": 10,
+                    "BuyPrice": 51,  # per stack of 5
+                    "VendorStackCount": 5,
                     "Description_lang": "",
                 },
                 {
@@ -153,8 +163,37 @@ def db2_paths(tmp_path: Path) -> dict[str, Path]:
 
 
 @pytest.fixture
+def vendor_csv(tmp_path: Path) -> Path:
+    """Vendors sell Coarse Thread (item 2), and an item this build doesn't have."""
+    return write_csv(
+        tmp_path / "vendor_items.csv",
+        ["item_id", "name"],
+        [{"item_id": 2, "name": "Coarse Thread"}, {"item_id": 99, "name": "Removed Item"}],
+    )
+
+
+@pytest.fixture
 def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
     c = db.connect(tmp_path / "test.db")
     db.init_schema(c)
     yield c
     c.close()
+
+
+@pytest.fixture
+def wow_root(tmp_path: Path) -> Path:
+    """A fake WoW install (tmp_path / "World of Warcraft") holding both addons' SavedVariables.
+
+    Alt Army: Classic Beta PvE (Horde tailor, Alliance enchanter) and Dreamscythe Horde (two characters).
+    Auctionator: prices for Classic Beta PvE (one auction house for both factions) and Dreamscythe Horde.
+    """
+    root = tmp_path / "World of Warcraft"
+    sv = root / SV_DIR
+    sv.mkdir(parents=True)
+    (sv / "AltArmy_TBC.lua").write_bytes(ALTARMY_SV)
+    auctions: dict[str, dict[str, object]] = {
+        "ClassicBetaPvE": {"1": _entry(20), "2": _entry(100)},
+        "Dreamscythe Horde": {"1": _entry(5)},
+    }
+    (sv / "Auctionator.lua").write_bytes(_saved_variables(auctions))
+    return root

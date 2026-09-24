@@ -11,7 +11,7 @@ from .conftest import write_csv
 
 def test_build_db_loads_items_and_recipes(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
     stats = ingest.build_db(db2_paths, conn)
-    assert stats == {"items": 3, "recipes": 1, "disenchant_rows": 0}
+    assert stats == {"items": 3, "recipes": 1, "disenchant_rows": 0, "vendor_items": 0}
 
     robe = conn.execute("SELECT * FROM items WHERE id = 3").fetchone()
     assert (robe["name"], robe["quality"], robe["item_level"], robe["class_id"], robe["sell_price"]) == (
@@ -109,6 +109,17 @@ def test_build_db_loads_disenchant_csv(
         ],
     )
     assert ingest.build_db(db2_paths, conn, de)["disenchant_rows"] == 1
+
+
+def test_build_db_loads_vendor_items(
+    db2_paths: dict[str, Path], conn: sqlite3.Connection, vendor_csv: Path
+) -> None:
+    assert ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)["vendor_items"] == 2
+    assert [r[0] for r in conn.execute("SELECT item_id FROM vendor_items")] == [2, 99]
+    thread = conn.execute("SELECT buy_price, buy_count FROM items WHERE id = 2").fetchone()
+    assert tuple(thread) == (51, 5)
+    ingest.build_db(db2_paths, conn, vendor_csv=vendor_csv)  # rebuild replaces, not appends
+    assert conn.execute("SELECT COUNT(*) FROM vendor_items").fetchone()[0] == 2
 
 
 def test_int_parsing_is_forgiving() -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 import urllib.error
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -20,25 +20,53 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, prices, service, store
-from .store import CACHE_DIR, DISENCHANT_CSV
+from . import altarmy, db, engine, prices, service, store
+from .store import CACHE_DIR, DISENCHANT_CSV, VENDOR_CSV
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 # --- models ----------------------------------------------------------------------------------------
+class SelectionModel(BaseModel):
+    """A realm and faction: whose recipes count and which auction house prices them."""
+
+    realm: str
+    faction: str
+
+
 class Status(BaseModel):
     db_path: str
     build: str | None
     items: int
     recipes: int
     prices: int
+    characters: int
     last_auctionator_import: str | None  # SQLite CURRENT_TIMESTAMP text, UTC
+    last_altarmy_sync: str | None  # same format
+    last_auctionator_sync: str | None  # same format; set even when the scan had no prices for the realm
+    altarmy_path: str | None
+    auctionator_path: str | None
+    auctionator_realm: str | None  # Auctionator's key for the selection; "" if it has none
+    selection: SelectionModel | None
+    data_version: int  # bumped whenever a sync re-imported something: refetch characters and results
+    warnings: list[str]  # addon files missing, unreadable, or without prices for the selection
+
+
+class MaterialOut(BaseModel):
+    """One possible disenchant result."""
+
+    item_id: int
+    name: str
+    chance: float  # 0..1
+    min_count: int
+    max_count: int
+    value: int | None  # expected net AH copper per disenchant; None if unpriced
 
 
 class ExitOut(BaseModel):
     kind: str  # vendor | ah | disenchant
     value: int  # copper per item, after cuts
+    materials: list[MaterialOut]  # disenchant only: what it yields
 
 
 class StepOut(BaseModel):
@@ -47,7 +75,35 @@ class StepOut(BaseModel):
     name: str
     quantity: int
     value: int  # copper for the whole step: negative when buying, positive when selling
-    via: str  # craft: recipe name; sell: vendor | ah | disenchant
+    via: str  # buy: vendor | ah; craft: recipe name; sell: vendor | ah | disenchant
+
+
+class NodeOut(BaseModel):
+    """One item in a craft's reagent tree: bought (no inputs) or crafted from its inputs."""
+
+    item_id: int
+    name: str
+    quantity: int  # units this branch needs
+    cost: int  # copper spent on them
+    via: str  # recipe name if crafted, "" if bought
+    crafts: int  # recipe runs if crafted
+    made: int  # units those crafts produce (may exceed quantity)
+    source: str  # vendor | ah if bought, "" if crafted
+    inputs: list[NodeOut]
+
+
+def _node_out(n: engine.Node) -> NodeOut:
+    return NodeOut(
+        item_id=n.item_id,
+        name=n.name,
+        quantity=n.quantity,
+        cost=n.cost,
+        via=n.via,
+        crafts=n.crafts,
+        made=n.made,
+        source=n.source,
+        inputs=[_node_out(i) for i in n.inputs],
+    )
 
 
 class ItemCount(BaseModel):
@@ -74,12 +130,14 @@ class ItemInfo(BaseModel):
     sell_price: int
     icon: str | None  # wow.zamimg.com icon name
     ah_price: int | None
+    vendor_price: int | None  # per unit, if a vendor sells it
 
 
 class RankResult(BaseModel):
     recipe_id: int
     recipe: str
     profession: str
+    crafters: list[str]  # selected characters who know the recipe; empty if nobody has learned it
     output_item_id: int
     output_name: str
     output_count: int
@@ -91,6 +149,7 @@ class RankResult(BaseModel):
     exits: list[ExitOut]
     reagents: list[ItemCount]
     steps: list[StepOut]  # buy reagents, craft (intermediates first), sell
+    tree: NodeOut  # the recipe's craft, with reagents as inputs
 
 
 class RankResponse(BaseModel):
@@ -100,30 +159,48 @@ class RankResponse(BaseModel):
 
 class UpdateResult(BaseModel):
     build: str
+    updated: bool  # False if only_if_new and the database already held this build
     items: int
     recipes: int
     disenchant_rows: int
+    vendor_items: int
 
 
-class AuctionatorFiles(BaseModel):
-    files: list[str]
-    default: str | None
+class SourceFiles(BaseModel):
+    files: list[str]  # found under the usual WoW install folders
+    default: str | None  # the file in use, else the best guess
 
 
-class Realms(BaseModel):
-    realms: list[str]
-    default: str | None
+class Sources(BaseModel):
+    """SavedVariables files to sync from; a missing field keeps that source."""
+
+    altarmy_path: str | None = None
+    auctionator_path: str | None = None
 
 
-class ImportRequest(BaseModel):
-    path: str
+class ProfessionOut(BaseModel):
+    name: str
+    rank: int
+    max_rank: int
+    recipes: int  # learned recipes
+
+
+class CharacterOut(BaseModel):
+    name: str
+    class_file: str  # e.g. PALADIN
+    level: int
+    professions: list[ProfessionOut]
+
+
+class GroupOut(BaseModel):
     realm: str
+    faction: str
+    characters: list[CharacterOut]
 
 
-class ImportResult(BaseModel):
-    realm: str
-    imported: int
-    unknown: int
+class Characters(BaseModel):
+    groups: list[GroupOut]  # by realm, then faction
+    selection: SelectionModel | None
 
 
 # --- app state and helpers -------------------------------------------------------------------------
@@ -132,8 +209,11 @@ class AppState:
     db_path: Path
     cache_dir: Path
     disenchant_csv: Path
+    vendor_csv: Path
     cache: service.MarketCache
     update_lock: threading.Lock
+    sync_lock: threading.Lock
+    wow_roots: Sequence[Path]  # where to look for the addons' SavedVariables
 
 
 def _state(request: Request) -> AppState:
@@ -166,22 +246,43 @@ def _http_errors() -> Iterator[None]:
         raise HTTPException(500, str(e)) from e
 
 
-def _existing_file(path: str) -> Path:
-    file = Path(path)
-    if not file.is_file():
-        raise HTTPException(404, f"File not found: {file}")
-    return file
+def _sync(state: AppState, conn: sqlite3.Connection, force: bool = False) -> list[str]:
+    """Re-import whichever addon file the game rewrote; returns the sync's warnings."""
+    with state.sync_lock:
+        result = service.sync(conn, state.wow_roots, force=force)
+    if result.changed:
+        state.cache.invalidate()
+    return result.warnings
 
 
-def _status(state: AppState, conn: sqlite3.Connection) -> Status:
+def _selection_model(sel: service.Selection | None) -> SelectionModel | None:
+    return None if sel is None else SelectionModel(realm=sel.realm, faction=sel.faction)
+
+
+def _status(state: AppState, conn: sqlite3.Connection, warnings: list[str] | None = None) -> Status:
+    sel, _ = service.selected_characters(conn)
     return Status(
         db_path=str(state.db_path),
         build=db.get_meta(conn, "build"),
         items=db.count_rows(conn, "items"),
         recipes=db.count_rows(conn, "recipes"),
         prices=db.count_rows(conn, "prices"),
+        characters=db.count_rows(conn, "characters"),
         last_auctionator_import=db.last_import(conn),
+        last_altarmy_sync=db.get_meta(conn, "altarmy_synced"),
+        last_auctionator_sync=db.get_meta(conn, "auctionator_synced"),
+        altarmy_path=db.get_meta(conn, "altarmy_path"),
+        auctionator_path=db.get_meta(conn, "auctionator_path"),
+        auctionator_realm=db.get_meta(conn, "auctionator_realm"),
+        selection=_selection_model(sel),
+        data_version=service.data_version(conn),
+        warnings=warnings or [],
     )
+
+
+def _vendor_price(market: engine.Market, item_id: int) -> int | None:
+    item = market.items.get(item_id)  # the cached market may predate the database
+    return None if item is None else item.vendor_price
 
 
 # --- routes ----------------------------------------------------------------------------------------
@@ -190,38 +291,102 @@ router = APIRouter(prefix="/api")
 
 @router.get("/status")
 def get_status(request: Request) -> Status:
+    """Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten."""
     state = _state(request)
     with _connect(state) as conn:
-        return _status(state, conn)
+        return _status(state, conn, _sync(state, conn))
 
 
-@router.get("/professions")
-def get_professions(request: Request) -> list[str]:
-    return service.available_professions(_state(request).cache.get())
+@router.post("/sync")
+def sync_now(request: Request) -> Status:
+    """Re-import both addon files even if they look unchanged."""
+    state = _state(request)
+    with _connect(state) as conn:
+        return _status(state, conn, _sync(state, conn, force=True))
+
+
+@router.get("/characters")
+def get_characters(request: Request) -> Characters:
+    with _connect(_state(request)) as conn:
+        chars = store.load_characters(conn)
+        sel = service.selection(conn, chars)
+    return Characters(
+        groups=[
+            GroupOut(
+                realm=g.realm,
+                faction=g.faction,
+                characters=[
+                    CharacterOut(
+                        name=c.name,
+                        class_file=c.class_file,
+                        level=c.level,
+                        professions=[
+                            ProfessionOut(
+                                name=p.name, rank=p.rank, max_rank=p.max_rank, recipes=len(p.recipe_ids)
+                            )
+                            for p in c.professions
+                        ],
+                    )
+                    for c in g.characters
+                ],
+            )
+            for g in altarmy.groups(chars)
+        ],
+        selection=_selection_model(sel),
+    )
+
+
+@router.put("/selection")
+def put_selection(request: Request, body: SelectionModel) -> Status:
+    """Switch realm/faction; that realm's Auctionator prices replace the previous ones."""
+    state = _state(request)
+    with _http_errors(), _connect(state) as conn:
+        service.select(conn, body.realm, body.faction)
+        return _status(state, conn, _sync(state, conn))
+
+
+@router.put("/sources")
+def put_sources(request: Request, body: Sources) -> Status:
+    state = _state(request)
+    with _http_errors(), _connect(state) as conn:
+        service.set_sources(conn, body.altarmy_path, body.auctionator_path)
+        return _status(state, conn, _sync(state, conn, force=True))
 
 
 @router.get("/rank")
 def get_rank(
     request: Request,
-    professions: Annotated[list[str], Query(default_factory=list)],
+    include_unlearned: Annotated[
+        bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
+    ] = False,
     min_profit: Annotated[int, Query(description="copper")] = 0,
     top: Annotated[int, Query(ge=1, le=500)] = 25,
 ) -> RankResponse:
+    """What the selected realm/faction's characters can craft, most profitable first."""
     state = _state(request)
     base = state.cache.get()
-    results = service.search(base, professions, min_profit, top)
-    item_ids = {s.item_id for r in results for s in r.steps} | {
-        i for r in results for i, _ in r.recipe.reagents
-    }
+    with _connect(state) as conn:
+        _, chars = service.selected_characters(conn)
+    results = service.search(base, chars, include_unlearned, min_profit, top)
+    crafters = altarmy.crafters(chars)
+    item_ids = (
+        {s.item_id for r in results for s in r.steps}
+        | {i for r in results for i, _ in r.recipe.reagents}
+        | {m.item_id for r in results for e in r.exits for m in e.materials}
+    )
     with _connect(state) as conn:
         details = store.load_item_details(conn, item_ids)
     return RankResponse(
-        items={i: ItemInfo(**asdict(d), ah_price=base.prices.get(i)) for i, d in details.items()},
+        items={
+            i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
+            for i, d in details.items()
+        },
         results=[
             RankResult(
                 recipe_id=r.recipe.id,
                 recipe=r.recipe.name,
                 profession=r.recipe.skill_name,
+                crafters=crafters.get(r.recipe.spell_id, []),
                 output_item_id=r.recipe.output_item_id,
                 output_name=base.items[r.recipe.output_item_id].name
                 if r.recipe.output_item_id in base.items
@@ -232,7 +397,14 @@ def get_rank(
                 profit=r.profit,
                 roi=r.roi,
                 best_exit=r.best_exit,
-                exits=[ExitOut(kind=e.kind, value=e.value) for e in r.exits],
+                exits=[
+                    ExitOut(
+                        kind=e.kind,
+                        value=e.value,
+                        materials=[MaterialOut(**asdict(m)) for m in e.materials],
+                    )
+                    for e in r.exits
+                ],
                 reagents=[ItemCount(item_id=i, count=c) for i, c in r.recipe.reagents],
                 steps=[
                     StepOut(
@@ -245,6 +417,7 @@ def get_rank(
                     )
                     for s in r.steps
                 ],
+                tree=_node_out(r.tree),
             )
             for r in results
         ],
@@ -252,47 +425,41 @@ def get_rank(
 
 
 @router.post("/game-data/update")
-def update_game_data(request: Request) -> UpdateResult:
+def update_game_data(
+    request: Request,
+    only_if_new: Annotated[bool, Query(description="skip the rebuild if the newest build is loaded")] = False,
+) -> UpdateResult:
     state = _state(request)
     if not state.update_lock.acquire(blocking=False):
         raise HTTPException(409, "A game data update is already running.")
     try:
         with _http_errors(), _connect(state) as conn:
-            build, stats = service.update_game_data(conn, state.cache_dir, state.disenchant_csv)
+            build, updated, stats = service.update_game_data(
+                conn, state.cache_dir, state.disenchant_csv, state.vendor_csv, only_if_new=only_if_new
+            )
     finally:
         state.update_lock.release()
-    state.cache.invalidate()
-    return UpdateResult(
-        build=build, items=stats["items"], recipes=stats["recipes"], disenchant_rows=stats["disenchant_rows"]
-    )
+    if updated:
+        state.cache.invalidate()
+    return UpdateResult(build=build, updated=updated, **stats)
+
+
+def _source_files(request: Request, find: Callable[[Iterable[Path]], list[Path]], key: str) -> SourceFiles:
+    state = _state(request)
+    files = [str(f) for f in find(state.wow_roots)]
+    with _connect(state) as conn:
+        last = db.get_meta(conn, key)
+    return SourceFiles(files=files, default=service.default_path(files, last))
 
 
 @router.get("/auctionator/files")
-def get_auctionator_files(request: Request) -> AuctionatorFiles:
-    files = [str(f) for f in prices.find_auctionator_files()]
-    with _connect(_state(request)) as conn:
-        last = db.get_meta(conn, "auctionator_path")
-    return AuctionatorFiles(files=files, default=service.default_auctionator_path(files, last))
+def get_auctionator_files(request: Request) -> SourceFiles:
+    return _source_files(request, prices.find_auctionator_files, "auctionator_path")
 
 
-@router.get("/auctionator/realms")
-def get_auctionator_realms(request: Request, path: str) -> Realms:
-    file = _existing_file(path)
-    with _http_errors():
-        realms = prices.auctionator_realms(file)
-    with _connect(_state(request)) as conn:
-        last = db.get_meta(conn, "auctionator_realm")
-    return Realms(realms=realms, default=service.default_realm(realms, last))
-
-
-@router.post("/auctionator/import")
-def import_auctionator(request: Request, body: ImportRequest) -> ImportResult:
-    state = _state(request)
-    file = _existing_file(body.path)
-    with _http_errors(), _connect(state) as conn:
-        realm, imported, unknown = service.import_auctionator(conn, file, body.realm)
-    state.cache.invalidate()
-    return ImportResult(realm=realm, imported=imported, unknown=unknown)
+@router.get("/altarmy/files")
+def get_altarmy_files(request: Request) -> SourceFiles:
+    return _source_files(request, prices.find_altarmy_files, "altarmy_path")
 
 
 @router.post("/reload")
@@ -309,13 +476,22 @@ def create_app(
     *,
     cache_dir: Path = CACHE_DIR,
     disenchant_csv: Path = DISENCHANT_CSV,
+    vendor_csv: Path = VENDOR_CSV,
     static_dir: Path | None = DEFAULT_DIST,
+    wow_roots: Sequence[Path] = tuple(prices.WOW_ROOTS),
 ) -> FastAPI:
     """Build the app. Touches no database or network, so tests and the OpenAPI export can call it freely."""
     db_path = Path(db_path)
     app = FastAPI(title="wow-profit", version="0.1.0")
     app.state.wow = AppState(
-        db_path, cache_dir, disenchant_csv, service.MarketCache(db_path), threading.Lock()
+        db_path,
+        cache_dir,
+        disenchant_csv,
+        vendor_csv,
+        service.MarketCache(db_path),
+        threading.Lock(),
+        threading.Lock(),
+        wow_roots,
     )
     app.include_router(router)
     if static_dir is not None and (static_dir / "index.html").is_file():

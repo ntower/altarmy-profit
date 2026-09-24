@@ -101,15 +101,19 @@ ITEM_INSERT_COLUMNS = (
     "required_skill_rank",
     "description",
     "icon",
+    "buy_count",
 )
 
 
 def build_db(
-    paths: dict[str, Path], conn: sqlite3.Connection, disenchant_csv: Path | None = None
+    paths: dict[str, Path],
+    conn: sqlite3.Connection,
+    disenchant_csv: Path | None = None,
+    vendor_csv: Path | None = None,
 ) -> dict[str, int]:
-    """Rebuild items/recipes/recipe_reagents/disenchant (prices are preserved)."""
+    """Rebuild items/recipes/recipe_reagents/disenchant/vendor_items (prices are preserved)."""
     db.init_schema(conn)
-    for t in ("items", "recipes", "recipe_reagents", "disenchant"):
+    for t in ("items", "recipes", "recipe_reagents", "disenchant", "vendor_items"):
         conn.execute(f"DELETE FROM {t}")
 
     skill_names = {_int(r["ID"]): r["DisplayName_lang"] for r in _rows(paths["SkillLine"])}
@@ -146,6 +150,7 @@ def build_db(
                 _int(r["RequiredSkillRank"]),
                 r["Description_lang"] or None,
                 icons.get(icon),
+                max(1, _int(r.get("VendorStackCount"), 1)),
             )
         )
     placeholders = ", ".join("?" * len(ITEM_INSERT_COLUMNS))
@@ -220,14 +225,24 @@ def build_db(
             )
             n_de += 1
 
+    n_vendor = 0
+    if vendor_csv and vendor_csv.exists():
+        vendor_ids = [(_int(r["item_id"]),) for r in _rows(vendor_csv)]
+        conn.executemany("INSERT OR IGNORE INTO vendor_items VALUES (?)", vendor_ids)
+        n_vendor = len(vendor_ids)
+
     conn.commit()
-    return {"items": len(items), "recipes": n_recipes, "disenchant_rows": n_de}
+    return {"items": len(items), "recipes": n_recipes, "disenchant_rows": n_de, "vendor_items": n_vendor}
 
 
 def update(
-    conn: sqlite3.Connection, build: str, cache_dir: Path, disenchant_csv: Path | None = None
+    conn: sqlite3.Connection,
+    build: str,
+    cache_dir: Path,
+    disenchant_csv: Path | None = None,
+    vendor_csv: Path | None = None,
 ) -> dict[str, int]:
     """Download `build` (cached per build) and rebuild the database from it, keeping prices."""
-    stats = build_db(download_all(build, cache_dir), conn, disenchant_csv)
+    stats = build_db(download_all(build, cache_dir), conn, disenchant_csv, vendor_csv)
     db.set_meta(conn, "build", build)
     return stats

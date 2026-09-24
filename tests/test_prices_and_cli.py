@@ -5,7 +5,7 @@ import pytest
 
 from wowprofit import cli, db, ingest, prices, store
 
-from .conftest import write_csv
+from .conftest import SV_DIR, write_csv
 
 
 def test_import_csv_by_id_and_name(
@@ -51,6 +51,42 @@ def test_find_auctionator_files(tmp_path: Path) -> None:
     (sv / "Auctionator.lua").write_text("")
     (sv / "Other.lua").write_text("")
     assert prices.find_auctionator_files([tmp_path, tmp_path / "missing"]) == [sv / "Auctionator.lua"]
+
+
+def test_find_altarmy_files(wow_root: Path) -> None:
+    assert prices.find_altarmy_files([wow_root]) == [wow_root / SV_DIR / "AltArmy_TBC.lua"]
+
+
+def test_replace_auctionator_prices_keeps_other_sources(conn: sqlite3.Connection) -> None:
+    prices.set_price(conn, 1, 10, "auctionator")
+    prices.set_price(conn, 2, 10, "manual")
+    prices.set_price(conn, 3, 10, "manual")
+    conn.commit()
+    assert prices.replace_auctionator_prices(conn, {3: 7, 4: 8}) == 2
+    assert prices.load_prices(conn) == {2: 10, 3: 7, 4: 8}
+
+
+def test_cli_import_altarmy_and_rank_by_realm(
+    db2_paths: dict[str, Path], conn: sqlite3.Connection, wow_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ingest.build_db(db2_paths, conn)
+    prices.set_price(conn, 1, 20)
+    prices.set_price(conn, 2, 100)
+    conn.commit()
+    dbfile = str(conn.execute("PRAGMA database_list").fetchone()["file"])
+    cli.main(["--db", dbfile, "import-altarmy", str(wow_root / SV_DIR / "AltArmy_TBC.lua")])
+    assert "Classic Beta PvE (Horde): Tailor Guy" in capsys.readouterr().out
+
+    cli.main(["--db", dbfile, "rank", "--realm", "Dreamscythe", "--faction", "Horde"])
+    assert "No profitable recipes" in capsys.readouterr().out
+    cli.main(["--db", dbfile, "rank", "--realm", "Classic Beta PvE", "--faction", "Horde"])
+    out = capsys.readouterr().out
+    assert "Characters: Tailor Guy" in out
+    assert "Green Robe" in out
+    cli.main(["--db", dbfile, "rank"])  # remembers the realm and faction
+    assert "Green Robe" in capsys.readouterr().out
+    with pytest.raises(SystemExit, match="both"):
+        cli.main(["--db", dbfile, "rank", "--realm", "Dreamscythe"])
 
 
 def test_meta_roundtrip(conn: sqlite3.Connection) -> None:

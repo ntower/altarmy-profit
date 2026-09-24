@@ -1,0 +1,39 @@
+.node {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 6px 10px;
+  font-size: var(--mantine-font-size-xs);
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.sell {
+  border-color: var(--mantine-color-teal-6);
+}
+
+.title {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  overflow: hidden;
+  font-size: var(--mantine-font-size-sm);
+  white-space: nowrap;
+}
+
+.detail {
+  overflow: hidden;
+  color: var(--mantine-color-dimmed);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Edges attach to the handles, but nothing can be connected, so keep them out of sight. */
+.handle {
+  opacity: 0;
+}

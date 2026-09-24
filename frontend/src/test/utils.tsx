@@ -7,7 +7,7 @@ import { vi } from 'vitest'
 export function renderWithProviders(ui: ReactElement) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <MantineProvider>
+    <MantineProvider env="test">
       <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>
     </MantineProvider>,
   )
