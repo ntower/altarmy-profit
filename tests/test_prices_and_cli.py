@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-from wowprofit import cli, db, ingest, prices
+from wowprofit import db, ingest, prices, store
 
 from .conftest import write_csv
 
@@ -36,7 +36,7 @@ def test_load_market_ranks_end_to_end(db2_paths: dict[str, Path], conn: sqlite3.
     ingest.build_db(db2_paths, conn)
     prices.set_price(conn, 1, 20)  # linen
     prices.set_price(conn, 2, 100)  # thread
-    market = cli.load_market(conn)
+    market = store.load_market(conn)
     (result,) = market.rank()
     assert result.cost == 300
     assert result.profit == 200  # vendors for 500
@@ -56,3 +56,14 @@ def test_meta_roundtrip(conn: sqlite3.Connection) -> None:
     db.set_meta(conn, "x", "1")
     db.set_meta(conn, "x", "2")
     assert db.get_meta(conn, "x") == "2"
+
+
+def test_count_rows_and_last_import(conn: sqlite3.Connection) -> None:
+    assert db.count_rows(conn, "prices") == 0
+    assert db.last_import(conn) is None
+    prices.set_price(conn, 1, 10, "auctionator")
+    prices.set_price(conn, 2, 10, "manual")
+    conn.commit()
+    assert db.count_rows(conn, "prices") == 2
+    assert db.last_import(conn) is not None
+    assert db.last_import(conn, "csv") is None

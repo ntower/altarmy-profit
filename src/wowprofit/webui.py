@@ -15,11 +15,10 @@ from pathlib import Path
 import streamlit as st
 
 from wowprofit import db, ingest, prices
-from wowprofit.cli import DISENCHANT_CSV, load_market
 from wowprofit.engine import PROFESSIONS, Item, Market, Result, format_money, recipes_for_professions
+from wowprofit.store import CACHE_DIR, DISENCHANT_CSV, load_market
 
 DB_ENV = "WOWPROFIT_DB"
-CACHE_DIR = Path("cache")
 
 
 def available_professions(market: Market) -> list[str]:
@@ -85,8 +84,8 @@ def manage_tab(db_path: str) -> None:
 
 def game_data_section(conn: sqlite3.Connection) -> None:
     st.subheader("Game data")
-    n_items = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
-    n_recipes = conn.execute("SELECT COUNT(*) FROM recipes").fetchone()[0]
+    n_items = db.count_rows(conn, "items")
+    n_recipes = db.count_rows(conn, "recipes")
     st.write(f"Build **{db.get_meta(conn, 'build') or 'none'}**: {n_items:,} items, {n_recipes:,} recipes.")
     if st.button("Download latest game data", key="update_game_data"):
         try:
@@ -102,7 +101,7 @@ def game_data_section(conn: sqlite3.Connection) -> None:
 
 def auctionator_section(conn: sqlite3.Connection) -> None:
     st.subheader("Auctionator prices")
-    last = conn.execute("SELECT MAX(updated_at) FROM prices WHERE source = 'auctionator'").fetchone()[0]
+    last = db.last_import(conn)
     st.write(f"Last import: **{last} UTC**" if last else "Last import: **never**")
     st.caption("WoW writes SavedVariables on logout or `/reload`, so do one of those after scanning.")
 

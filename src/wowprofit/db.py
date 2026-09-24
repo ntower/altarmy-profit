@@ -87,3 +87,18 @@ def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
     conn.execute("INSERT OR REPLACE INTO meta VALUES (?, ?)", (key, value))
     conn.commit()
+
+
+COUNTED_TABLES = ("items", "recipes", "prices")
+
+
+def count_rows(conn: sqlite3.Connection, table: str) -> int:
+    if table not in COUNTED_TABLES:
+        raise ValueError(f"not a countable table: {table}")
+    return int(conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+
+def last_import(conn: sqlite3.Connection, source: str = "auctionator") -> str | None:
+    """UTC timestamp (SQLite CURRENT_TIMESTAMP text) of the newest price from `source`."""
+    row = conn.execute("SELECT MAX(updated_at) FROM prices WHERE source = ?", (source,)).fetchone()
+    return None if row[0] is None else str(row[0])
