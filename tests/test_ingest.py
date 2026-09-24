@@ -137,7 +137,7 @@ def test_parse_latest_build_picks_product() -> None:
             "wow_classic_beta": {"product": "wow_classic_beta", "version": "1.60.1.69977"},
         }
     ).encode()
-    assert ingest.parse_latest_build(payload) == "1.60.1.69977"
+    assert ingest.parse_latest_build(payload, "wow_classic_beta") == "1.60.1.69977"
     assert ingest.parse_latest_build(payload, "wow") == "12.1.0.69933"
     with pytest.raises(ValueError, match="wow_nope"):
         ingest.parse_latest_build(payload, "wow_nope")
@@ -157,3 +157,53 @@ def test_update_downloads_builds_and_records_build(
     assert calls == [("1.2.3.4", tmp_path / "cache")]
     assert stats["recipes"] == 1
     assert db.get_meta(conn, "build") == "1.2.3.4"
+
+
+@pytest.mark.parametrize(
+    ("row", "count"),
+    [
+        ({"EffectBasePointsF": "3"}, 3),  # Forever: the (average) count as a float
+        (
+            {"EffectBasePointsF": "0", "EffectBasePoints": "2", "EffectDieSides": "1"},
+            3,
+        ),  # TBC Thorium Grenade
+        ({"EffectBasePointsF": "0", "EffectBasePoints": "199", "EffectDieSides": "1"}, 200),  # Thorium Shells
+        (
+            {"EffectBasePointsF": "0", "EffectBasePoints": "0", "EffectDieSides": "5"},
+            3,
+        ),  # Heavy Dynamite: 1-5
+        ({"EffectBasePointsF": "0", "EffectBasePoints": "1", "EffectDieSides": "3"}, 3),  # Iron Grenade: 2-4
+        ({"EffectBasePointsF": "0", "EffectBasePoints": "0", "EffectDieSides": "0"}, 1),
+        ({"EffectBasePointsF": ""}, 1),  # no count columns at all
+    ],
+)
+def test_output_count_from_either_clients_spell_effect(row: dict[str, str], count: int) -> None:
+    assert ingest.output_count(row) == count
+
+
+def test_build_db_reads_tbc_style_output_counts(db2_paths: dict[str, Path], conn: sqlite3.Connection) -> None:
+    write_csv(
+        db2_paths["SpellEffect"],
+        [
+            "ID",
+            "Effect",
+            "EffectItemType",
+            "EffectBasePointsF",
+            "EffectBasePoints",
+            "EffectDieSides",
+            "SpellID",
+        ],
+        [
+            {
+                "ID": 1,
+                "Effect": 24,
+                "EffectItemType": 3,
+                "EffectBasePointsF": 0,
+                "EffectBasePoints": 2,
+                "EffectDieSides": 1,
+                "SpellID": 900,
+            }
+        ],
+    )
+    ingest.build_db(db2_paths, conn)
+    assert conn.execute("SELECT output_count FROM recipes").fetchone()[0] == 3

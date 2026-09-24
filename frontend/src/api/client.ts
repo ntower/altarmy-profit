@@ -11,6 +11,8 @@ export type FlowNode = components['schemas']['NodeOut']
 /** Tooltip details keyed by item id (JSON object keys are strings). */
 export type ItemMap = Readonly<Record<string, ItemInfo>>
 export type Characters = components['schemas']['Characters']
+/** Which game's data a request is about: `tbc` or `forever`. */
+export type GameVersion = components['schemas']['VersionOut']['key']
 export type CharacterGroup = components['schemas']['GroupOut']
 export type Selection = components['schemas']['SelectionModel']
 export type Sources = components['schemas']['Sources']

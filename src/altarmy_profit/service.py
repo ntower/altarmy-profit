@@ -15,7 +15,18 @@ from pathlib import Path
 
 from . import altarmy, auctionator, db, ingest, prices, store
 from .altarmy import Character
-from .engine import ALL_EXITS, Choices, Crafter, Filters, Market, Result, recipes_for_characters
+from .engine import (
+    AH_CUT,
+    ALL_EXITS,
+    MAIL_POSTAGE,
+    Choices,
+    Crafter,
+    Filters,
+    Market,
+    Result,
+    recipes_for_characters,
+)
+from .versions import GameVersion
 
 
 class MarketCache:
@@ -24,8 +35,10 @@ class MarketCache:
     Market is read-only once built, so handing the same instance to several threads is safe.
     """
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, *, ah_cut: float = AH_CUT, mail_postage: int = MAIL_POSTAGE) -> None:
         self.db_path = db_path
+        self.ah_cut = ah_cut
+        self.mail_postage = mail_postage
         self._lock = threading.Lock()
         self._market: Market | None = None
 
@@ -35,7 +48,7 @@ class MarketCache:
                 conn = db.connect(self.db_path)
                 try:
                     db.init_schema(conn)
-                    self._market = store.load_market(conn)
+                    self._market = store.load_market(conn, ah_cut=self.ah_cut, mail_postage=self.mail_postage)
                 finally:
                     conn.close()
             return self._market
@@ -112,11 +125,13 @@ def _market(
         recipes,
         base.prices,
         base.disenchant,
+        base.ah_cut,
         crafters=crafters,
         include_unlearned=include_unlearned,
         exits=exits,
         no_ah=no_ah,
         include_trivial=include_trivial,
+        mail_postage=base.mail_postage,
     )
 
 
@@ -168,11 +183,8 @@ class SyncResult:
 
 
 def default_path(files: Sequence[str], last: str | None) -> str | None:
-    """The last used file (even a pasted one), else the first WoW: Forever file, else the first."""
-    if last:
-        return last
-    forever = [f for f in files if "_classic_beta_" in f]
-    return forever[0] if forever else (files[0] if files else None)
+    """The last used file (even a pasted one), else the first one found."""
+    return last or (files[0] if files else None)
 
 
 def data_version(conn: sqlite3.Connection) -> int:
@@ -191,27 +203,44 @@ def set_sources(conn: sqlite3.Connection, altarmy_path: str | None, auctionator_
 
 
 def sync(
-    conn: sqlite3.Connection, roots: Iterable[Path] = prices.WOW_ROOTS, *, force: bool = False
+    conn: sqlite3.Connection,
+    roots: Iterable[Path] = prices.WOW_ROOTS,
+    *,
+    force: bool = False,
+    flavors: Sequence[str] | None = None,
 ) -> SyncResult:
     """Re-import Alt Army characters and the selected realm's Auctionator prices if either file changed.
 
-    Unset paths are filled in from the files found under the WoW installs in `roots`.
+    Unset paths are filled in from the files found under the WoW installs in `roots`, looking only in the
+    game version's `flavors` folders (e.g. ("_anniversary_",)) when given.
     """
-    roots = list(roots)
+    found = _Finder(list(roots), flavors)
     warnings: list[str] = []
-    changed = _sync_altarmy(conn, roots, force, warnings)
-    changed = _sync_auctionator(conn, roots, force, warnings) or changed
+    changed = _sync_altarmy(conn, found, force, warnings)
+    changed = _sync_auctionator(conn, found, force, warnings) or changed
     if changed:
         db.set_meta(conn, "data_version", str(data_version(conn) + 1))
     return SyncResult(changed, warnings)
 
 
-def _source(
-    conn: sqlite3.Connection, key: str, find: Callable[[Iterable[Path]], list[Path]], roots: list[Path]
-) -> Path | None:
+Finder = Callable[[Iterable[Path], Sequence[str] | None], list[Path]]  # prices.find_*_files
+
+
+@dataclass(frozen=True)
+class _Finder:
+    """Where to look for addon files: WoW installs and, optionally, only some flavor folders."""
+
+    roots: list[Path]
+    flavors: Sequence[str] | None
+
+    def __call__(self, find: Finder) -> list[Path]:
+        return find(self.roots, self.flavors)
+
+
+def _source(conn: sqlite3.Connection, key: str, find: Finder, found: _Finder) -> Path | None:
     path = db.get_meta(conn, key)
     if path is None:
-        path = default_path([str(f) for f in find(roots)], None)
+        path = default_path([str(f) for f in found(find)], None)
         if path is None:
             return None
         db.set_meta(conn, key, path)
@@ -224,8 +253,8 @@ def _changed_mtime(conn: sqlite3.Connection, path: Path, key: str, force: bool) 
     return mtime if force or mtime != db.get_meta(conn, key) else None
 
 
-def _sync_altarmy(conn: sqlite3.Connection, roots: list[Path], force: bool, warnings: list[str]) -> bool:
-    path = _source(conn, "altarmy_path", prices.find_altarmy_files, roots)
+def _sync_altarmy(conn: sqlite3.Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
+    path = _source(conn, "altarmy_path", prices.find_altarmy_files, found)
     if path is None:
         warnings.append("No Alt Army file found. Pick AltArmy_TBC.lua on the Manage tab.")
         return False
@@ -246,11 +275,11 @@ def _sync_altarmy(conn: sqlite3.Connection, roots: list[Path], force: bool, warn
     return True
 
 
-def _sync_auctionator(conn: sqlite3.Connection, roots: list[Path], force: bool, warnings: list[str]) -> bool:
+def _sync_auctionator(conn: sqlite3.Connection, found: _Finder, force: bool, warnings: list[str]) -> bool:
     sel = selection(conn, store.load_characters(conn))
     if sel is None:
         return False  # no characters yet, so no realm to price
-    path = _source(conn, "auctionator_path", prices.find_auctionator_files, roots)
+    path = _source(conn, "auctionator_path", prices.find_auctionator_files, found)
     if path is None:
         warnings.append("No Auctionator file found. Pick Auctionator.lua on the Manage tab.")
         return False
@@ -293,22 +322,21 @@ def _no_prices(sel: Selection) -> str:
 # --- game data -------------------------------------------------------------------------------------
 def update_game_data(
     conn: sqlite3.Connection,
+    version: GameVersion,
     cache_dir: Path,
-    disenchant_csv: Path,
-    vendor_csv: Path,
     *,
     only_if_new: bool = False,
 ) -> tuple[str, bool, dict[str, int]]:
-    """Download the newest build's DB2 tables and rebuild items/recipes (prices are kept).
+    """Download the version's newest build's DB2 tables and rebuild items/recipes (prices are kept).
 
     With `only_if_new`, skip the rebuild when the database already holds the newest build. The manual
-    update always rebuilds, since data/disenchant.csv or data/vendor_items.csv may have changed.
+    update always rebuilds, since the version's disenchant.csv or vendor_items.csv may have changed.
     Returns (build, whether it rebuilt, row counts).
     """
-    build = ingest.latest_build()
+    build = ingest.latest_build(version.wago_product)
     if only_if_new and db.get_meta(conn, "build") == build:
         return build, False, current_counts(conn)
-    return build, True, ingest.update(conn, build, cache_dir, disenchant_csv, vendor_csv)
+    return build, True, ingest.update(conn, build, cache_dir, version.disenchant_csv, version.vendor_csv)
 
 
 def current_counts(conn: sqlite3.Connection) -> dict[str, int]:

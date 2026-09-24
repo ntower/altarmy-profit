@@ -5,7 +5,8 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
-DEFAULT_DB = Path("data/altarmy-profit.db")
+# The single database used before each game version got its own file (versions.GameVersion.db_path).
+LEGACY_DB = Path("data/altarmy-profit.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS items (
@@ -54,7 +55,7 @@ CREATE TABLE IF NOT EXISTS recipe_reagents (
     PRIMARY KEY (recipe_id, item_id)
 );
 
--- Disenchant results are server-side loot data, NOT in DB2. Seeded from data/disenchant.csv.
+-- Disenchant results are server-side loot data, NOT in DB2. Seeded from data/<version>/disenchant.csv.
 CREATE TABLE IF NOT EXISTS disenchant (
     item_class INTEGER NOT NULL,
     quality INTEGER NOT NULL,
@@ -67,7 +68,7 @@ CREATE TABLE IF NOT EXISTS disenchant (
 );
 
 -- Which items vendors sell (unlimited stock) is server-side data, NOT in DB2. Seeded from
--- data/vendor_items.csv (scripts/build_vendor_items.py); the price is items.buy_price / buy_count.
+-- data/<version>/vendor_items.csv (scripts/build_vendor_items.py); the price is items.buy_price / buy_count.
 CREATE TABLE IF NOT EXISTS vendor_items (item_id INTEGER PRIMARY KEY);
 
 CREATE TABLE IF NOT EXISTS prices (
@@ -114,7 +115,7 @@ CREATE TABLE IF NOT EXISTS character_recipes (
 """
 
 
-def connect(path: Path | str = DEFAULT_DB) -> sqlite3.Connection:
+def connect(path: Path | str) -> sqlite3.Connection:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path)

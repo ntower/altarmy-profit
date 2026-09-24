@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from altarmy_profit import altarmy, db, ingest, prices, service, store
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.api import create_app
+from altarmy_profit.versions import GameVersion
 
 from .conftest import SV_DIR
 from .test_altarmy import ALTARMY_SV
@@ -15,15 +16,17 @@ from .test_auctionator import _entry, _saved_variables
 
 
 @pytest.fixture
-def client(tmp_path: Path, vendor_csv: Path) -> TestClient:
+def client(tmp_path: Path, vendor_csv: Path, game_versions: dict[str, GameVersion]) -> TestClient:
+    """Asks about Forever (the `conn` fixture's database) unless a request passes another game_version."""
     app = create_app(
-        tmp_path / "test.db",
+        game_versions,
         cache_dir=tmp_path / "cache",
-        vendor_csv=vendor_csv,
         static_dir=tmp_path / "nodist",
         wow_roots=[tmp_path / "World of Warcraft"],  # where the `wow_root` fixture puts one
     )
-    return TestClient(app)
+    c = TestClient(app)
+    c.params = c.params.set("game_version", "forever")
+    return c
 
 
 def with_tailor(conn: sqlite3.Connection) -> None:
@@ -245,7 +248,7 @@ def test_rank_filters_and_validation(client: TestClient, priced: sqlite3.Connect
 def test_update_game_data_invalidates_cache(
     client: TestClient, db2_paths: dict[str, Path], conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(ingest, "latest_build", lambda: "9.9.9.1")
+    monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.1")
     monkeypatch.setattr(ingest, "download_all", lambda build, cache_dir: db2_paths)
     prices.set_price(conn, 1, 20)
     prices.set_price(conn, 2, 100)
@@ -272,7 +275,7 @@ def test_update_game_data_only_if_new(
         downloads.append(build)
         return db2_paths
 
-    monkeypatch.setattr(ingest, "latest_build", lambda: "9.9.9.1")
+    monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.1")
     monkeypatch.setattr(ingest, "download_all", fake_download_all)
 
     first = client.post("/api/game-data/update", params={"only_if_new": True}).json()
@@ -284,13 +287,13 @@ def test_update_game_data_only_if_new(
     client.post("/api/game-data/update")  # without the flag it always rebuilds
     assert downloads == ["9.9.9.1", "9.9.9.1"]
 
-    monkeypatch.setattr(ingest, "latest_build", lambda: "9.9.9.2")
+    monkeypatch.setattr(ingest, "latest_build", lambda product: "9.9.9.2")
     assert client.post("/api/game-data/update", params={"only_if_new": True}).json()["updated"] is True
     assert client.get("/api/status").json()["build"] == "9.9.9.2"
 
 
 def test_update_game_data_network_error(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    def fail() -> str:
+    def fail(product: str) -> str:
         raise urllib.error.URLError("offline")
 
     monkeypatch.setattr(ingest, "latest_build", fail)
@@ -303,11 +306,11 @@ def test_auctionator_files_default(
     client: TestClient, conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     files = [Path(r"W\_classic_\A.lua"), Path(r"W\_classic_beta_\A.lua")]
-    monkeypatch.setattr(prices, "find_auctionator_files", lambda roots: files)
+    monkeypatch.setattr(prices, "find_auctionator_files", lambda roots, flavors: files)
     body = client.get("/api/auctionator/files").json()
-    assert body == {"files": [str(f) for f in files], "default": str(files[1])}
-    db.set_meta(conn, "auctionator_path", str(files[0]))
-    assert client.get("/api/auctionator/files").json()["default"] == str(files[0])
+    assert body == {"files": [str(f) for f in files], "default": str(files[0])}
+    db.set_meta(conn, "auctionator_path", str(files[1]))
+    assert client.get("/api/auctionator/files").json()["default"] == str(files[1])
 
 
 def test_rank_include_unlearned(client: TestClient, priced: sqlite3.Connection) -> None:
@@ -415,16 +418,55 @@ def test_reload_rereads_database(client: TestClient, priced: sqlite3.Connection)
     assert profit() == 250
 
 
-def test_serves_built_frontend(tmp_path: Path) -> None:
+def test_serves_built_frontend(tmp_path: Path, game_versions: dict[str, GameVersion]) -> None:
     dist = tmp_path / "dist"
     dist.mkdir()
     (dist / "index.html").write_text("<html>altarmy-profit</html>")
-    client = TestClient(create_app(tmp_path / "test.db", static_dir=dist, wow_roots=()))
+    client = TestClient(create_app(game_versions, static_dir=dist, wow_roots=()))
     assert "altarmy-profit" in client.get("/").text
-    assert client.get("/api/status").json()["recipes"] == 0
+    assert client.get("/api/status", params={"game_version": "tbc"}).json()["recipes"] == 0
 
 
 def test_missing_frontend_build_gives_hint(client: TestClient) -> None:
     res = client.get("/")
     assert res.status_code == 200
     assert "npm run build" in res.json()["detail"]
+
+
+def test_routes_need_a_known_game_version(client: TestClient) -> None:
+    client.params = client.params.remove("game_version")
+    assert client.get("/api/status").status_code == 422
+    assert client.get("/api/status", params={"game_version": "retail"}).status_code == 422
+
+
+def test_each_game_version_has_its_own_database(
+    client: TestClient, priced: sqlite3.Connection, tmp_path: Path, wow_root: Path
+) -> None:
+    assert len(client.get("/api/rank").json()["results"]) == 1  # Forever: the tailor's robe
+    tbc = {"game_version": "tbc"}
+    status = client.get("/api/status", params=tbc).json()
+    assert status["db_path"].endswith("tbc.db")
+    assert (status["recipes"], status["prices"]) == (0, 0)
+    assert client.get("/api/rank", params=tbc).json()["results"] == []
+    assert client.get("/api/altarmy/files", params=tbc).json() == {"files": [], "default": None}
+    assert client.get("/api/versions").json() == [
+        {"key": "forever", "label": "WoW: Forever", "build": None, "recipes": 1},
+        {"key": "tbc", "label": "TBC Anniversary", "build": None, "recipes": 0},
+    ]
+
+
+def test_update_game_data_uses_the_versions_product(
+    client: TestClient, db2_paths: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+
+    def latest(product: str) -> str:
+        asked.append(product)
+        return "2.5.6.1"
+
+    monkeypatch.setattr(ingest, "latest_build", latest)
+    monkeypatch.setattr(ingest, "download_all", lambda build, cache_dir: db2_paths)
+    res = client.post("/api/game-data/update", params={"game_version": "tbc"}).json()
+    assert asked == ["wow_anniversary"]
+    assert (res["build"], res["vendor_items"]) == ("2.5.6.1", 0)  # TBC's data dir has no vendor list here
+    assert client.get("/api/status").json()["build"] is None  # Forever untouched

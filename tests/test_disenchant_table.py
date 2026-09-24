@@ -1,4 +1,4 @@
-"""Sanity checks on the shipped data/disenchant.csv lookup table."""
+"""Sanity checks on the shipped data/forever/disenchant.csv lookup table."""
 
 import csv
 from collections import defaultdict
@@ -14,7 +14,7 @@ from altarmy_profit.engine import (
     Market,
 )
 
-TABLE = Path(__file__).resolve().parents[1] / "data" / "disenchant.csv"
+TABLE = Path(__file__).resolve().parents[1] / "data" / "forever" / "disenchant.csv"
 
 # Classic-era enchanting materials (dusts, essences, shards, Nexus Crystal).
 KNOWN_MATS = {

@@ -10,18 +10,19 @@ from __future__ import annotations
 import sqlite3
 import threading
 import urllib.error
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import altarmy, db, engine, prices, service, store
-from .store import CACHE_DIR, DISENCHANT_CSV, VENDOR_CSV
+from . import altarmy, db, engine, prices, service, store, versions
+from .store import CACHE_DIR
+from .versions import GameVersion, GameVersionKey
 
 DEFAULT_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
@@ -269,22 +270,45 @@ class Characters(BaseModel):
     selection: SelectionModel | None
 
 
+class VersionOut(BaseModel):
+    """A game version the app serves; pass its `key` as `game_version` to the other routes."""
+
+    key: GameVersionKey
+    label: str  # e.g. TBC Anniversary
+    build: str | None  # the DB2 build loaded, None before the first game data download
+    recipes: int
+
+
 # --- app state and helpers -------------------------------------------------------------------------
 @dataclass
 class AppState:
-    db_path: Path
+    """One game version's database, cached market and locks, plus what every version shares."""
+
+    version: GameVersion
     cache_dir: Path
-    disenchant_csv: Path
-    vendor_csv: Path
     cache: service.MarketCache
     update_lock: threading.Lock
     sync_lock: threading.Lock
     wow_roots: Sequence[Path]  # where to look for the addons' SavedVariables
 
+    @property
+    def db_path(self) -> Path:
+        return self.version.db_path
 
-def _state(request: Request) -> AppState:
-    state: AppState = request.app.state.wow
-    return state
+
+def _states(request: Request) -> dict[str, AppState]:
+    states: dict[str, AppState] = request.app.state.wow
+    return states
+
+
+def _state(
+    request: Request,
+    game_version: Annotated[GameVersionKey, Query(description="which game's data: tbc or forever")],
+) -> AppState:
+    return _states(request)[game_version]
+
+
+State = Annotated[AppState, Depends(_state)]
 
 
 @contextmanager
@@ -315,7 +339,7 @@ def _http_errors() -> Iterator[None]:
 def _sync(state: AppState, conn: sqlite3.Connection, force: bool = False) -> list[str]:
     """Re-import whichever addon file the game rewrote; returns the sync's warnings."""
     with state.sync_lock:
-        result = service.sync(conn, state.wow_roots, force=force)
+        result = service.sync(conn, state.wow_roots, force=force, flavors=state.version.flavor_folders)
     if result.changed:
         state.cache.invalidate()
     return result.warnings
@@ -356,24 +380,22 @@ router = APIRouter(prefix="/api")
 
 
 @router.get("/status")
-def get_status(request: Request) -> Status:
+def get_status(state: State) -> Status:
     """Also the addon file watcher: re-imports Alt Army and Auctionator data the game has rewritten."""
-    state = _state(request)
     with _connect(state) as conn:
         return _status(state, conn, _sync(state, conn))
 
 
 @router.post("/sync")
-def sync_now(request: Request) -> Status:
+def sync_now(state: State) -> Status:
     """Re-import both addon files even if they look unchanged."""
-    state = _state(request)
     with _connect(state) as conn:
         return _status(state, conn, _sync(state, conn, force=True))
 
 
 @router.get("/characters")
-def get_characters(request: Request) -> Characters:
-    with _connect(_state(request)) as conn:
+def get_characters(state: State) -> Characters:
+    with _connect(state) as conn:
         chars = store.load_characters(conn)
         sel = service.selection(conn, chars)
     return Characters(
@@ -403,17 +425,15 @@ def get_characters(request: Request) -> Characters:
 
 
 @router.put("/selection")
-def put_selection(request: Request, body: SelectionModel) -> Status:
+def put_selection(state: State, body: SelectionModel) -> Status:
     """Switch realm/faction; that realm's Auctionator prices replace the previous ones."""
-    state = _state(request)
     with _http_errors(), _connect(state) as conn:
         service.select(conn, body.realm, body.faction)
         return _status(state, conn, _sync(state, conn))
 
 
 @router.put("/sources")
-def put_sources(request: Request, body: Sources) -> Status:
-    state = _state(request)
+def put_sources(state: State, body: Sources) -> Status:
     with _http_errors(), _connect(state) as conn:
         service.set_sources(conn, body.altarmy_path, body.auctionator_path)
         return _status(state, conn, _sync(state, conn, force=True))
@@ -421,7 +441,7 @@ def put_sources(request: Request, body: Sources) -> Status:
 
 @router.get("/rank")
 def get_rank(
-    request: Request,
+    state: State,
     include_unlearned: Annotated[
         bool, Query(description="rank every recipe of the characters' professions, not just learned ones")
     ] = False,
@@ -439,7 +459,6 @@ def get_rank(
 ) -> RankResponse:
     """What the selected realm/faction's characters can craft, most profitable first. Bounds are
     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
-    state = _state(request)
     base = state.cache.get()
     with _connect(state) as conn:
         _, chars = service.selected_characters(conn)
@@ -459,9 +478,8 @@ def get_rank(
 
 
 @router.post("/evaluate")
-def evaluate(request: Request, body: EvaluateRequest) -> EvaluateResponse:
+def evaluate(state: State, body: EvaluateRequest) -> EvaluateResponse:
     """One recipe as /api/rank would give it, with the user's `choices` of sources and exit applied."""
-    state = _state(request)
     base = state.cache.get()
     with _connect(state) as conn:
         _, chars = service.selected_characters(conn)
@@ -566,25 +584,22 @@ def _ah_blocked(state: AppState, conn: sqlite3.Connection) -> AhBlocked:
 
 
 @router.get("/ah-blocked")
-def get_ah_blocked(request: Request) -> AhBlocked:
-    state = _state(request)
+def get_ah_blocked(state: State) -> AhBlocked:
     with _connect(state) as conn:
         return _ah_blocked(state, conn)
 
 
 @router.put("/ah-blocked/{item_id}")
-def block_ah(request: Request, item_id: int) -> AhBlocked:
+def block_ah(state: State, item_id: int) -> AhBlocked:
     """Never sell `item_id` on the AH: /api/rank and /api/evaluate only vendor or disenchant it."""
-    state = _state(request)
     with _connect(state) as conn:
         store.set_ah_blocked(conn, item_id, True)
         return _ah_blocked(state, conn)
 
 
 @router.delete("/ah-blocked/{item_id}")
-def unblock_ah(request: Request, item_id: int) -> AhBlocked:
+def unblock_ah(state: State, item_id: int) -> AhBlocked:
     """Allow selling `item_id` on the AH again."""
-    state = _state(request)
     with _connect(state) as conn:
         store.set_ah_blocked(conn, item_id, False)
         return _ah_blocked(state, conn)
@@ -592,16 +607,15 @@ def unblock_ah(request: Request, item_id: int) -> AhBlocked:
 
 @router.post("/game-data/update")
 def update_game_data(
-    request: Request,
+    state: State,
     only_if_new: Annotated[bool, Query(description="skip the rebuild if the newest build is loaded")] = False,
 ) -> UpdateResult:
-    state = _state(request)
     if not state.update_lock.acquire(blocking=False):
         raise HTTPException(409, "A game data update is already running.")
     try:
         with _http_errors(), _connect(state) as conn:
             build, updated, stats = service.update_game_data(
-                conn, state.cache_dir, state.disenchant_csv, state.vendor_csv, only_if_new=only_if_new
+                conn, state.version, state.cache_dir, only_if_new=only_if_new
             )
     finally:
         state.update_lock.release()
@@ -610,55 +624,63 @@ def update_game_data(
     return UpdateResult(build=build, updated=updated, **stats)
 
 
-def _source_files(request: Request, find: Callable[[Iterable[Path]], list[Path]], key: str) -> SourceFiles:
-    state = _state(request)
-    files = [str(f) for f in find(state.wow_roots)]
+def _source_files(state: AppState, find: service.Finder, key: str) -> SourceFiles:
+    files = [str(f) for f in find(state.wow_roots, state.version.flavor_folders)]
     with _connect(state) as conn:
         last = db.get_meta(conn, key)
     return SourceFiles(files=files, default=service.default_path(files, last))
 
 
 @router.get("/auctionator/files")
-def get_auctionator_files(request: Request) -> SourceFiles:
-    return _source_files(request, prices.find_auctionator_files, "auctionator_path")
+def get_auctionator_files(state: State) -> SourceFiles:
+    return _source_files(state, prices.find_auctionator_files, "auctionator_path")
 
 
 @router.get("/altarmy/files")
-def get_altarmy_files(request: Request) -> SourceFiles:
-    return _source_files(request, prices.find_altarmy_files, "altarmy_path")
+def get_altarmy_files(state: State) -> SourceFiles:
+    return _source_files(state, prices.find_altarmy_files, "altarmy_path")
 
 
 @router.post("/reload")
-def reload(request: Request) -> Status:
+def reload(state: State) -> Status:
     """Drop the cached market, e.g. after changing the database from the command line."""
-    state = _state(request)
     state.cache.invalidate()
     with _connect(state) as conn:
         return _status(state, conn)
 
 
+@router.get("/versions")
+def get_versions(request: Request) -> list[VersionOut]:
+    """The game versions served, each with the build its database holds."""
+    out = []
+    for state in _states(request).values():
+        with _connect(state) as conn:
+            build, recipes = db.get_meta(conn, "build"), db.count_rows(conn, "recipes")
+        out.append(VersionOut(key=state.version.key, label=state.version.label, build=build, recipes=recipes))
+    return out
+
+
 def create_app(
-    db_path: Path | str,
+    game_versions: Mapping[str, GameVersion] = versions.VERSIONS,
     *,
     cache_dir: Path = CACHE_DIR,
-    disenchant_csv: Path = DISENCHANT_CSV,
-    vendor_csv: Path = VENDOR_CSV,
     static_dir: Path | None = DEFAULT_DIST,
     wow_roots: Sequence[Path] = tuple(prices.WOW_ROOTS),
 ) -> FastAPI:
-    """Build the app. Touches no database or network, so tests and the OpenAPI export can call it freely."""
-    db_path = Path(db_path)
+    """Build the app for `game_versions`, each with its own database and data files. Touches no database or
+    network, so tests and the OpenAPI export can call it freely."""
     app = FastAPI(title="altarmy-profit", version="0.1.0")
-    app.state.wow = AppState(
-        db_path,
-        cache_dir,
-        disenchant_csv,
-        vendor_csv,
-        service.MarketCache(db_path),
-        threading.Lock(),
-        threading.Lock(),
-        wow_roots,
-    )
+    app.state.wow = {
+        key: AppState(
+            v,
+            cache_dir,
+            service.MarketCache(v.db_path, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
+            threading.Lock(),
+            threading.Lock(),
+            wow_roots,
+        )
+        for key, v in game_versions.items()
+    }
     app.include_router(router)
     if static_dir is not None and (static_dir / "index.html").is_file():
         app.mount("/", StaticFiles(directory=static_dir, html=True), name="frontend")

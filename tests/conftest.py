@@ -3,11 +3,13 @@
 import csv
 import sqlite3
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from altarmy_profit import db
+from altarmy_profit.versions import VERSIONS, GameVersion
 
 from .test_altarmy import ALTARMY_SV
 from .test_auctionator import _entry, _saved_variables
@@ -179,6 +181,16 @@ def vendor_csv(tmp_path: Path) -> Path:
         ["item_id", "name"],
         [{"item_id": 2, "name": "Coarse Thread"}, {"item_id": 99, "name": "Removed Item"}],
     )
+
+
+@pytest.fixture
+def game_versions(tmp_path: Path) -> dict[str, GameVersion]:
+    """Both versions with temporary databases: Forever in test.db (the `conn` fixture's file) with its data
+    files in tmp_path (see `vendor_csv`), TBC in tbc.db with no data files."""
+    return {
+        "forever": replace(VERSIONS["forever"], db_path=tmp_path / "test.db", data_dir=tmp_path),
+        "tbc": replace(VERSIONS["tbc"], db_path=tmp_path / "tbc.db", data_dir=tmp_path / "tbc"),
+    }
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { status } from '../test/status'
-import { importedSince, readSyncSeen, SYNC_SEEN_KEY, syncSeen, writeSyncSeen } from './syncNotice'
+import { importedSince, readSyncSeen, syncSeen, syncSeenKey, writeSyncSeen } from './syncNotice'
 
 describe('importedSince', () => {
   const seen = syncSeen(status())
@@ -29,11 +29,12 @@ describe('importedSince', () => {
 })
 
 describe('stored sync state', () => {
-  it('round-trips and ignores garbage', () => {
-    expect(readSyncSeen()).toBeNull()
-    writeSyncSeen(syncSeen(status()))
-    expect(readSyncSeen()).toEqual(syncSeen(status()))
-    localStorage.setItem(SYNC_SEEN_KEY, '{"data_version": "x"}')
-    expect(readSyncSeen()).toBeNull()
+  it('round-trips per game version and ignores garbage', () => {
+    expect(readSyncSeen('forever')).toBeNull()
+    writeSyncSeen('forever', syncSeen(status()))
+    expect(readSyncSeen('forever')).toEqual(syncSeen(status()))
+    expect(readSyncSeen('tbc')).toBeNull()
+    localStorage.setItem(syncSeenKey('forever'), '{"data_version": "x"}')
+    expect(readSyncSeen('forever')).toBeNull()
   })
 })

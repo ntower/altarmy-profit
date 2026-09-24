@@ -1,4 +1,8 @@
-"""Command line interface: ingest, import-prices, import-auctionator, import-altarmy, set-price, rank, ui."""
+"""Command line interface: ingest, import-prices, import-auctionator, import-altarmy, set-price, rank, ui.
+
+`--game-version` (tbc | forever) picks the database, data files and wago.tools product; `--db` overrides the
+database.
+"""
 
 from __future__ import annotations
 
@@ -6,22 +10,33 @@ import argparse
 import sys
 import threading
 import webbrowser
+from dataclasses import replace
 from pathlib import Path
 
-from . import altarmy, db, ingest, prices, service, store
+from . import altarmy, db, ingest, prices, service, store, versions
 from .engine import Filters, format_money
-from .store import DISENCHANT_CSV, VENDOR_CSV, load_market
+from .store import load_market
+from .versions import GameVersion
+
+
+def _version(args: argparse.Namespace) -> GameVersion:
+    """The chosen game version, with its database replaced by `--db` if given."""
+    v = versions.get(args.game_version)
+    return replace(v, db_path=Path(args.db)) if args.db else v
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
-    build = ingest.latest_build() if args.build == "latest" else args.build
-    conn = db.connect(args.db)
-    stats = ingest.update(conn, build, Path(args.cache), DISENCHANT_CSV, VENDOR_CSV)
-    print(f"Ingested build {build}: {stats}")
+    v = _version(args)
+    build = args.build or v.default_build
+    if build == "latest":
+        build = ingest.latest_build(v.wago_product)
+    conn = db.connect(v.db_path)
+    stats = ingest.update(conn, build, Path(args.cache), v.disenchant_csv, v.vendor_csv)
+    print(f"Ingested {v.label} build {build}: {stats}")
 
 
 def cmd_import_prices(args: argparse.Namespace) -> None:
-    conn = db.connect(args.db)
+    conn = db.connect(_version(args).db_path)
     n, unresolved = prices.import_csv(conn, Path(args.file))
     print(f"Imported {n} prices.")
     if unresolved:
@@ -29,7 +44,7 @@ def cmd_import_prices(args: argparse.Namespace) -> None:
 
 
 def cmd_import_auctionator(args: argparse.Namespace) -> None:
-    conn = db.connect(args.db)
+    conn = db.connect(_version(args).db_path)
     db.init_schema(conn)
     try:
         realm, n, unknown = prices.import_auctionator(conn, Path(args.file), args.realm)
@@ -41,7 +56,7 @@ def cmd_import_auctionator(args: argparse.Namespace) -> None:
 
 
 def cmd_import_altarmy(args: argparse.Namespace) -> None:
-    conn = db.connect(args.db)
+    conn = db.connect(_version(args).db_path)
     db.init_schema(conn)
     try:
         chars = altarmy.parse_characters(Path(args.file).read_bytes())
@@ -53,13 +68,13 @@ def cmd_import_altarmy(args: argparse.Namespace) -> None:
 
 
 def cmd_set_price(args: argparse.Namespace) -> None:
-    conn = db.connect(args.db)
+    conn = db.connect(_version(args).db_path)
     prices.set_price(conn, args.item_id, args.copper)
     conn.commit()
 
 
 def cmd_rank(args: argparse.Namespace) -> None:
-    conn = db.connect(args.db)
+    conn = db.connect(_version(args).db_path)
     db.init_schema(conn)
     if (args.realm is None) != (args.faction is None):
         sys.exit("Pass both --realm and --faction.")
@@ -68,7 +83,8 @@ def cmd_rank(args: argparse.Namespace) -> None:
             service.select(conn, args.realm, args.faction)
         except ValueError as e:
             sys.exit(str(e))
-    market = load_market(conn)
+    v = _version(args)
+    market = load_market(conn, ah_cut=v.ah_cut, mail_postage=v.mail_postage)
     sel, chars = service.selected_characters(conn)
     if sel is None:  # no Alt Army import: rank every recipe
         results = market.rank(min_profit=args.min_profit, skill_name=args.skill)
@@ -109,16 +125,25 @@ def cmd_ui(args: argparse.Namespace) -> None:
     if not args.no_browser:
         threading.Timer(1.0, webbrowser.open, [url]).start()
     print(f"altarmy-profit UI on {url} (Ctrl+C to stop)")
-    uvicorn.run(create_app(Path(args.db).resolve()), host=args.host, port=args.port)
+    chosen = _version(args)
+    served = {k: chosen if k == chosen.key else v for k, v in versions.VERSIONS.items()}
+    served = {k: replace(v, db_path=v.db_path.resolve()) for k, v in served.items()}
+    uvicorn.run(create_app(served), host=args.host, port=args.port)
 
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="altarmy-profit")
-    p.add_argument("--db", default=str(db.DEFAULT_DB))
+    p.add_argument(
+        "--game-version",
+        choices=list(versions.VERSIONS),
+        default=versions.DEFAULT_VERSION,
+        help="which game's data to use (default: %(default)s)",
+    )
+    p.add_argument("--db", help="database file (default: data/altarmy-profit-<game version>.db)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("ingest", help="download DB2 tables from wago.tools and build the database")
-    s.add_argument("--build", default=ingest.DEFAULT_BUILD, help='a build version, or "latest"')
+    s.add_argument("--build", help='a build version, or "latest" (default: the pinned build)')
     s.add_argument("--cache", default="cache")
     s.set_defaults(fn=cmd_ingest)
 
@@ -167,6 +192,10 @@ def main(argv: list[str] | None = None) -> None:
     s.set_defaults(fn=cmd_ui)
 
     args = p.parse_args(argv)
+    if args.db is None:
+        moved = versions.migrate_legacy_db()
+        if moved:
+            print(f"Moved {db.LEGACY_DB} to {moved} (one database per game version now).")
     args.fn(args)
 
 

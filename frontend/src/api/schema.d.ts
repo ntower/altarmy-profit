@@ -251,6 +251,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Versions
+         * @description The game versions served, each with the build its database holds.
+         */
+        get: operations["get_versions_api_versions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -655,6 +675,23 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * VersionOut
+         * @description A game version the app serves; pass its `key` as `game_version` to the other routes.
+         */
+        VersionOut: {
+            /** Build */
+            build: string | null;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "tbc" | "forever";
+            /** Label */
+            label: string;
+            /** Recipes */
+            recipes: number;
+        };
     };
     responses: never;
     parameters: never;
@@ -666,7 +703,10 @@ export type $defs = Record<string, never>;
 export interface operations {
     get_ah_blocked_api_ah_blocked_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -682,11 +722,23 @@ export interface operations {
                     "application/json": components["schemas"]["AhBlocked"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     block_ah_api_ah_blocked__item_id__put: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path: {
                 item_id: number;
@@ -717,7 +769,10 @@ export interface operations {
     };
     unblock_ah_api_ah_blocked__item_id__delete: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path: {
                 item_id: number;
@@ -748,7 +803,10 @@ export interface operations {
     };
     get_altarmy_files_api_altarmy_files_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -762,13 +820,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceFiles"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
     get_auctionator_files_api_auctionator_files_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -784,11 +854,23 @@ export interface operations {
                     "application/json": components["schemas"]["SourceFiles"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_characters_api_characters_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -804,11 +886,23 @@ export interface operations {
                     "application/json": components["schemas"]["Characters"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     evaluate_api_evaluate_post: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -841,9 +935,11 @@ export interface operations {
     };
     update_game_data_api_game_data_update_post: {
         parameters: {
-            query?: {
+            query: {
                 /** @description skip the rebuild if the newest build is loaded */
                 only_if_new?: boolean;
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
             };
             header?: never;
             path?: never;
@@ -873,7 +969,7 @@ export interface operations {
     };
     get_rank_api_rank_get: {
         parameters: {
-            query?: {
+            query: {
                 /** @description rank every recipe of the characters' professions, not just learned ones */
                 include_unlearned?: boolean;
                 /** @description also recipes that can't give the crafter a skillup (grey or at the cap) */
@@ -893,6 +989,8 @@ export interface operations {
                 /** @description profit / cost (0.5 = 50%) */
                 max_roi?: number | null;
                 top?: number;
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
             };
             header?: never;
             path?: never;
@@ -922,7 +1020,10 @@ export interface operations {
     };
     reload_api_reload_post: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -938,11 +1039,23 @@ export interface operations {
                     "application/json": components["schemas"]["Status"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     put_selection_api_selection_put: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -975,7 +1088,10 @@ export interface operations {
     };
     put_sources_api_sources_put: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1008,7 +1124,10 @@ export interface operations {
     };
     get_status_api_status_get: {
         parameters: {
-            query?: never;
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1024,9 +1143,50 @@ export interface operations {
                     "application/json": components["schemas"]["Status"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     sync_now_api_sync_post: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Status"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_versions_api_versions_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -1041,7 +1201,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["Status"];
+                    "application/json": components["schemas"]["VersionOut"][];
                 };
             };
         };

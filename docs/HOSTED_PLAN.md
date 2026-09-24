@@ -39,16 +39,19 @@ the existing file watcher (`service.sync`) turned on.
 
 ## 3. Game versions
 
-- `game_version` (`tbc` | `forever`) is a column on every game-data and price table and a parameter on
-  every API route that reads them.
+Done in Phase 1 for local mode (`src/altarmy_profit/versions.py`); hosted mode adds the column below.
+
+- `game_version` (`tbc` | `forever`) is a parameter on every per-game API route. In local mode each
+  version has its own SQLite file (`data/altarmy-profit-<version>.db`); in hosted mode it becomes a column
+  on every game-data and price table, and Phase 2's importer tags each local file's rows with it.
 - Ingest takes the wago.tools product: `tbc` -> `wow_anniversary` (2.5.6, Interface 20506),
-  `forever` -> `wow_classic_beta` (1.60.x, Interface 16001). `DEFAULT_BUILD` in `ingest.py` becomes a
-  per-version table; the DB2 table list is the same for both.
+  `forever` -> `wow_classic_beta` (1.60.x, Interface 16001). The pinned build is per version; the DB2
+  table list is the same for both.
 - Per-version hand data: `data/<version>/disenchant.csv` and `data/<version>/vendor_items.csv`. TBC vendor
-  items come from a TBC world database (cmangos `mangos-tbc`) through a sibling of
-  `scripts/build_vendor_items.py`; `vmangos.py` stays the vanilla reader.
-- Engine constants become per-version config passed into `Market`: `PROFESSIONS` gains Jewelcrafting for
-  TBC; AH cut and postage are verified per client (Phase 0).
+  items come from cmangos' `tbc-db` SQLite release (`cmangos.py`); `vmangos.py` stays the vanilla reader.
+  TBC disenchant rates are generated from Auctionator's brackets (`scripts/build_disenchant.py`).
+- The AH cut and postage per attachment are per-version settings passed into `Market`; `PROFESSIONS`
+  includes Jewelcrafting.
 - Alt Army writes the same `AltArmy_TBC.lua` on both clients and does not record the client per character.
   Uploaders infer the version from the WoW flavor folder (`_anniversary_` -> tbc, `_classic_beta_` ->
   forever); the browser upload asks. Addon follow-up: record the interface/build per character so uploads
@@ -166,15 +169,14 @@ with a connection per request. `scripts/check.py` keeps regenerating `frontend/o
 
 Each phase ships on its own and local mode keeps working throughout.
 
-0. **Investigate and benchmark.** Confirm the flavor folder names and Auctionator realm keys on the TBC
-   client, find the Blizzard namespace for `wow_anniversary` realms and whether its AH endpoints answer,
-   verify the AH cut and postage on Forever, and record `bench_rank.py` numbers.
-1. **Multi-version foundation** (local only). `game_version` column, ingest product flag, per-version data
-   files, engine config per version, UI version switch.
+0. **Investigate and benchmark** (done, apart from the manual checks in section 14). Flavor folders,
+   Auctionator realm keys, DB2 differences and `scripts/bench_rank.py` numbers.
+1. **Multi-version foundation** (done, local only). One SQLite file per version, per-version ingest
+   product and build, per-version data files, AH cut and postage per version, UI version switch.
 2. **Storage layer.** SQLAlchemy Core plus Alembic, Postgres support, the snapshot/observation/current price
    tables; local mode migrates its SQLite file.
 3. **Auth and tenancy.** Firebase anonymous sign-in and linking, `users`, per-user characters and settings,
-   tiers and the item-level gate.
+   tiers and the required-level gate.
 4. **Uploaders.** Browser upload, CLI watcher, API keys.
 5. **Deploy.** Cloud Run, Cloud SQL, Firebase Hosting, scheduler jobs, CI.
 6. **Pooling quality and performance.** Merge job, quarantine and trust, coverage page, rank cache and
@@ -197,3 +199,42 @@ Each phase ships on its own and local mode keeps working throughout.
   then the merge job only logs when one realm name arrives tagged with two regions.
 - Retention window for raw observations (plan: about 90 days).
 - Whether the TBC Anniversary realms will ever expose a Blizzard AH endpoint; the plan does not depend on it.
+
+## 14. Phase 0 findings (2026-09-24)
+
+From the maintainer's installs and wago.tools.
+
+- **Addon files.** `_anniversary_` and `_classic_beta_` each hold `AltArmy_TBC.lua` and `Auctionator.lua`
+  under `WTF/Account/<account>/SavedVariables`. TBC characters carry Jewelcrafting and Riding.
+- **Auctionator realm keys.** TBC keys realm plus faction (`Dreamscythe Horde`, `Nightslayer Alliance`)
+  because its auction houses are split by faction. Forever keys the realm without spaces and no faction
+  (`ClassicBetaPvE`, `ClassicBetaPvP2`). `service.match_auctionator_realm` handles both.
+- **DB2.** Every column ingest reads exists in both builds. TBC leaves `SpellEffect.EffectBasePointsF` at
+  0 and encodes the output count as `EffectBasePoints` plus a 1..`EffectDieSides` roll; `ingest.output_count`
+  handles both (random counts are averaged, matching Forever's float).
+- **Vendor data.** cmangos publishes `tbc-sqlite-db.zip` in its `latest` release: 1,668 unlimited,
+  unconditional, gold-priced vendor items (vanilla via vmangos: 1,393).
+- **Disenchant data.** Auctionator's `Source_Classic/Enchant/DisenchantingProbabilities.lua` gives 245 TBC
+  rows (brackets starting at item level 164 or below).
+
+Ranking time (`python scripts/bench_rank.py`, best of 3, local SQLite, one core):
+
+| Version | Items / recipes / prices | Characters | Learned | With unlearned |
+|---------|--------------------------|------------|---------|----------------|
+| Forever | 19,171 / 2,025 / 2,136 | 5 | 0.007 s (87 results) | 0.128 s (877) |
+| TBC | 30,132 / 2,015 / 9,431 | 19 | 0.167 s (536) | 1.075 s (1,121) |
+
+`load_market` takes 0.13 to 0.16 s. Ranking is fine for one user; with the widest search at about a second,
+the Phase 6 rank cache matters once many users share an instance.
+
+Still to check by hand:
+
+- **AH cut and postage** on both clients (the app assumes 5% and 30c per attachment). Change
+  `GameVersion.ah_cut` or `mail_postage` in `versions.py` if either differs.
+- **Blizzard API for Anniversary realms.** Create a client at https://develop.battle.net/access/clients, set
+  `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`, run `python scripts/probe_blizzard_api.py`, and record
+  which namespace (if any) answers with auctions.
+- **Output counts.** TBC's data says the Major protection potions make 5 per craft; confirm one in game.
+- **Price outliers.** TBC rankings surface single overpriced listings (a 49s gem "selling" for 333g). That is
+  the snapshot-pricing limit the Phase 6 merge job and the price-history ideas in
+  [ROADMAP_IDEAS.md](ROADMAP_IDEAS.md) address.

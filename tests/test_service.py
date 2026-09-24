@@ -25,9 +25,9 @@ def touch(path: Path) -> None:
     os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
 
 
-def test_default_path_prefers_last_then_forever() -> None:
+def test_default_path_prefers_last_then_first_found() -> None:
     files = [r"W\_classic_\A.lua", r"W\_classic_beta_\A.lua"]
-    assert service.default_path(files, None) == files[1]
+    assert service.default_path(files, None) == files[0]
     assert service.default_path(files, files[0]) == files[0]
     assert service.default_path(files[:1], None) == files[0]
     assert service.default_path([], None) is None

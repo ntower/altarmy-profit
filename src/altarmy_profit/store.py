@@ -9,10 +9,8 @@ from pathlib import Path
 
 from . import prices
 from .altarmy import Character, Profession
-from .engine import DisenchantRow, Item, Market, Recipe
+from .engine import AH_CUT, MAIL_POSTAGE, DisenchantRow, Item, Market, Recipe
 
-DISENCHANT_CSV = Path("data/disenchant.csv")
-VENDOR_CSV = Path("data/vendor_items.csv")
 CACHE_DIR = Path("cache")
 SQLITE_MAX_VARIABLES = 900  # stay under older SQLite builds' 999 bound parameters
 
@@ -38,7 +36,10 @@ class ItemDetails:
     icon: str | None
 
 
-def load_market(conn: sqlite3.Connection) -> Market:
+def load_market(
+    conn: sqlite3.Connection, *, ah_cut: float = AH_CUT, mail_postage: int = MAIL_POSTAGE
+) -> Market:
+    """The database as a Market, with the game version's AH cut and postage per attachment."""
     items = {
         r["id"]: Item(
             r["id"],
@@ -74,7 +75,7 @@ def load_market(conn: sqlite3.Connection) -> Market:
         for r in conn.execute("SELECT * FROM recipes")
     ]
     de = [DisenchantRow(*tuple(r)) for r in conn.execute("SELECT * FROM disenchant")]
-    return Market(items, recipes, prices.load_prices(conn), de)
+    return Market(items, recipes, prices.load_prices(conn), de, ah_cut, mail_postage=mail_postage)
 
 
 def load_item_details(conn: sqlite3.Connection, ids: Iterable[int]) -> dict[int, ItemDetails]:

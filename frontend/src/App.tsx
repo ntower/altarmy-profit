@@ -1,16 +1,26 @@
-import { Container, Tabs, Title } from '@mantine/core'
+import { Container, Group, Tabs, Title } from '@mantine/core'
 import { useAutoUpdateGameData, useSyncNotifications } from './api/queries'
+import { GameVersionProvider, GameVersionSwitch } from './components/GameVersionProvider'
 import { ManageTab } from './components/ManageTab'
 import { SearchTab } from './components/SearchTab'
 
 export function App() {
+  return (
+    <GameVersionProvider>
+      <Shell />
+    </GameVersionProvider>
+  )
+}
+
+function Shell() {
   useAutoUpdateGameData()
   useSyncNotifications()
   return (
     <Container size="xl" py="md">
-      <Title order={1} mb="md">
-        altarmy-profit
-      </Title>
+      <Group justify="space-between" align="center" mb="md">
+        <Title order={1}>altarmy-profit</Title>
+        <GameVersionSwitch />
+      </Group>
       <Tabs defaultValue="search">
         <Tabs.List mb="md">
           <Tabs.Tab value="search">Search</Tabs.Tab>

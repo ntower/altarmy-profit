@@ -11,8 +11,6 @@ from pathlib import Path
 
 from . import db
 
-DEFAULT_BUILD = "1.60.1.69913"
-PRODUCT = "wow_classic_beta"  # WoW: Forever builds on wago.tools
 LATEST_URL = "https://wago.tools/api/builds/latest"
 TABLES = [
     "Item",
@@ -36,7 +34,7 @@ def _fetch(url: str) -> bytes:
     return data
 
 
-def parse_latest_build(payload: bytes, product: str = PRODUCT) -> str:
+def parse_latest_build(payload: bytes, product: str) -> str:
     """Pick `product`'s version out of wago.tools' /api/builds/latest JSON."""
     builds = json.loads(payload)
     if product not in builds:
@@ -44,7 +42,8 @@ def parse_latest_build(payload: bytes, product: str = PRODUCT) -> str:
     return str(builds[product]["version"])
 
 
-def latest_build(product: str = PRODUCT) -> str:
+def latest_build(product: str) -> str:
+    """The newest build of a wago.tools product (versions.GameVersion.wago_product)."""
     return parse_latest_build(_fetch(LATEST_URL), product)
 
 
@@ -80,6 +79,19 @@ def _icon_names(path: Path) -> dict[int, str]:
         for r in _rows(path)
         if r["FilePath"].lower().startswith("interface\\icons")
     }
+
+
+def output_count(effect: dict[str, str]) -> int:
+    """Items one cast of a CreateItem SpellEffect row makes (random counts averaged), at least 1.
+
+    Forever's builds carry the count in `EffectBasePointsF`. TBC's leave that 0 and use the older encoding:
+    `EffectBasePoints` plus a roll of 1..`EffectDieSides` (Thorium Grenade: 2 + 1 = 3).
+    """
+    as_float = round(float(effect.get("EffectBasePointsF") or 0))
+    if as_float > 0:
+        return as_float
+    base, sides = _int(effect.get("EffectBasePoints")), _int(effect.get("EffectDieSides"))
+    return max(1, base + (1 + sides) // 2 if sides > 0 else base)
 
 
 ITEM_INSERT_COLUMNS = (
@@ -168,7 +180,7 @@ def build_db(
             if spell not in outputs:
                 outputs[spell] = (
                     _int(r["EffectItemType"]),
-                    max(1, round(float(r["EffectBasePointsF"] or 0))),
+                    output_count(r),
                 )
 
     reagents: dict[int, list[tuple[int, int]]] = {}

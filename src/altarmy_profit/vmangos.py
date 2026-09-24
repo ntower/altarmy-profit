@@ -1,7 +1,7 @@
 """Which items vendors sell, from vmangos' open-source vanilla (1.12) world database.
 
 DB2 does not say what vendors sell (that is server-side data), so `scripts/build_vendor_items.py` uses
-this to regenerate `data/vendor_items.csv`, which ingest loads. The price comes from DB2's BuyPrice.
+this to regenerate `data/forever/vendor_items.csv`, which ingest loads. The price comes from DB2's BuyPrice.
 """
 
 from __future__ import annotations

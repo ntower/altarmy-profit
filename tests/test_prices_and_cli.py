@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from altarmy_profit import cli, db, ingest, prices, store
+from altarmy_profit import cli, db, ingest, prices, store, versions
 
 from .conftest import SV_DIR, write_csv
 
@@ -121,3 +121,24 @@ def test_ui_serves_api_with_uvicorn(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     ((app, host, port),) = calls
     assert isinstance(app, FastAPI)
     assert (host, port) == ("127.0.0.1", 9123)
+
+
+def test_cli_ingest_uses_the_game_versions_build_and_product(
+    db2_paths: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    builds: list[str] = []
+
+    def download_all(build: str, cache_dir: Path) -> dict[str, Path]:
+        builds.append(build)
+        return db2_paths
+
+    monkeypatch.setattr(ingest, "download_all", download_all)
+    monkeypatch.setattr(ingest, "latest_build", lambda product: {"wow_anniversary": "2.5.7.1"}[product])
+    dbfile = str(tmp_path / "tbc.db")
+    cli.main(["--game-version", "tbc", "--db", dbfile, "ingest"])
+    cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--build", "latest"])
+    assert builds == [versions.VERSIONS["tbc"].default_build, "2.5.7.1"]
+    assert "Ingested TBC Anniversary build 2.5.7.1" in capsys.readouterr().out

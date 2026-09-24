@@ -1,6 +1,7 @@
 # altarmy-profit
 
-Local tool that finds profitable crafting recipes and production chains for **WoW: Forever**.
+Local tool that finds profitable crafting recipes and production chains for **WoW: Forever** and
+**TBC Anniversary**, the two clients the Alt Army addon runs on. Each game version has its own database.
 
 - Items and recipes come from the client's DB2 tables (via [wago.tools](https://wago.tools/) CSV exports) into a local SQLite file.
 - You supply auction house prices (CSV import for now).
@@ -22,8 +23,9 @@ python scripts/check.py     # Python: ruff, mypy (strict), pytest. Front end: ox
 ## Usage
 
 ```powershell
-altarmy-profit ingest                          # downloads DB2 tables into cache/, builds data/altarmy-profit.db
+altarmy-profit ingest                          # downloads DB2 tables into cache/, builds data/altarmy-profit-forever.db
 altarmy-profit ingest --build latest           # same, for the newest WoW: Forever build on wago.tools
+altarmy-profit --game-version tbc ingest       # TBC Anniversary instead: data/altarmy-profit-tbc.db
 altarmy-profit import-prices prices.csv        # columns: item_id (or name), price   (copper)
 altarmy-profit import-auctionator "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\Auctionator.lua"
 altarmy-profit import-altarmy "<WoW>\_classic_beta_\WTF\Account\<account>\SavedVariables\AltArmy_TBC.lua"
@@ -31,6 +33,11 @@ altarmy-profit set-price 2589 250              # one item, copper
 altarmy-profit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
 altarmy-profit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
 ```
+
+Every command takes `--game-version forever|tbc` (default `forever`) before the command name; it picks the
+database, the data files under `data/<version>/` and the wago.tools product (`wow_classic_beta` or
+`wow_anniversary`). `--db <file>` overrides the database. A database from before game versions
+(`data/altarmy-profit.db`) is renamed to its version's file the first time a command runs.
 
 `import-auctionator` reads Auctionator's **account-wide** SavedVariables file (not the per-character
 one) and stores each item's latest minimum buyout. WoW writes SavedVariables on logout or `/reload`,
@@ -42,7 +49,9 @@ characters, their professions and the recipes they have learned. `rank` then onl
 characters of one realm and faction can craft (chains may use any of their recipes, whoever knows them).
 
 The web UI is a React app (`frontend/`) served by a local FastAPI server (`altarmy-profit ui`); build
-it once with `npm run build` in `frontend/`. It has two tabs:
+it once with `npm run build` in `frontend/`. A switch in the header picks the game (WoW: Forever or TBC
+Anniversary); everything below it, including characters, prices and settings on Manage, belongs to that
+game. It has two tabs:
 
 - **Search** ranks what your characters on the chosen realm and faction can craft, and names who
   crafts each recipe. A switch adds recipes of their professions they have not learned yet. Expand a
@@ -53,11 +62,12 @@ it once with `npm run build` in `frontend/`. It has two tabs:
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
   bought there).
 - **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
-  the latest game data (the newest `wow_classic_beta` build on wago.tools; prices are kept) and shows
-  the addon files in use.
+  the chosen game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
+  files in use.
 
 The UI reads `AltArmy_TBC.lua` and `Auctionator.lua` itself: it finds them under the usual WoW install
-folders (preferring `_classic_beta_`; paste another path on Manage) and re-imports either one whenever
+folders, in the chosen game's folder (`_classic_beta_` for Forever, `_anniversary_` for TBC; paste
+another path on Manage), and re-imports either one whenever
 WoW rewrites it, on logout or `/reload`. Prices come from the chosen realm's Auctionator scan and replace
 the previous realm's.
 
@@ -78,24 +88,30 @@ Coarse Thread,120
 
 ## Data notes
 
-- Pinned build: see `DEFAULT_BUILD` in `src/altarmy_profit/ingest.py`. Pass `--build <version>` or `--build latest`
-  for a newer one. The build actually loaded is stored in the `meta` table.
-- **Disenchant results are not in DB2** (they are server-side loot tables). `data/disenchant.csv`
-  (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds Classic-era
-  rates, derived from the brackets Auctionator uses for Classic clients. Counts within a row are
-  assumed uniform. Coverage: greens ilvl 5–65, blues 11–65, epics 40–80; items outside those
-  ranges get no disenchant value. Forever-specific rates are not yet published — verify against
-  Wowhead's Forever database as data comes in, then re-run `altarmy-profit ingest`.
-- **Vendor-sold items are not in DB2** (vendor inventories are server-side). `data/vendor_items.csv`
-  (`item_id,name`) lists the items vanilla vendors sell with unlimited stock and no reputation or event
-  condition, taken from [vmangos](https://github.com/vmangos/core)' world database by
-  `python scripts/build_vendor_items.py`. The price is DB2's `BuyPrice` per `VendorStackCount`, rounded up
-  to whole copper. Reagents are bought from whichever of vendor and AH is cheaper. Forever may differ from
-  vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor item is missing or wrong.
-- Recipe output count is derived from `SpellEffect.EffectBasePointsF`; verify against known recipes.
+- Pinned builds: `default_build` per version in `src/altarmy_profit/versions.py`. Pass `--build <version>`
+  or `--build latest` for a newer one. The build actually loaded is stored in the `meta` table.
+- **Disenchant results are not in DB2** (they are server-side loot tables). `data/<version>/disenchant.csv`
+  (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds the rates.
+  Forever's are Classic-era rates, derived from the brackets Auctionator uses for Classic clients, and
+  cover greens ilvl 5–65, blues 11–65, epics 40–80. Counts within a row are assumed uniform.
+  Forever-specific rates are not yet published — verify against Wowhead's Forever database as data comes
+  in, then re-run `altarmy-profit ingest`. TBC's are generated from the TBC client's Auctionator
+  (one row per count) by `python scripts/build_disenchant.py`.
+- **Vendor-sold items are not in DB2** (vendor inventories are server-side). `data/<version>/vendor_items.csv`
+  (`item_id,name`) lists the items vendors sell with unlimited stock and no reputation or event condition
+  (TBC: and no honor or badge cost), taken from [vmangos](https://github.com/vmangos/core)' vanilla world
+  database for Forever and [cmangos](https://github.com/cmangos/tbc-db)' for TBC by
+  `python scripts/build_vendor_items.py --game-version forever|tbc`. The price is DB2's `BuyPrice` per
+  `VendorStackCount`, rounded up to whole copper. Reagents are bought from whichever of vendor and AH is
+  cheaper. Forever may differ from vanilla; edit the CSV and re-run `altarmy-profit ingest` if a vendor
+  item is missing or wrong.
+- Recipe output count comes from `SpellEffect.EffectBasePointsF` (Forever) or `EffectBasePoints` plus the
+  average `EffectDieSides` roll (TBC); see `ingest.output_count`.
 
 ## Layout
 
+- `src/altarmy_profit/versions.py` – the game versions (TBC Anniversary, Forever): database, data files,
+  wago.tools product, WoW flavor folder, AH cut and postage
 - `src/altarmy_profit/ingest.py` – download + load DB2 CSVs
 - `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
 - `src/altarmy_profit/prices.py` – price sources (CSV, Auctionator SavedVariables via `auctionator.py`)
@@ -103,6 +119,8 @@ Coarse Thread,120
 - `src/altarmy_profit/store.py` – load SQLite into engine dataclasses
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
 - `src/altarmy_profit/cli.py` – command line
+- `src/altarmy_profit/vmangos.py`, `cmangos.py`, `disenchant_rates.py` – sources for the hand data files
+- `scripts/bench_rank.py` (ranking timings), `scripts/probe_blizzard_api.py` (Blizzard AH API check)
 - `frontend/` – Vite + React + TypeScript + Mantine web UI
 - `docs/` – plans: `HOSTED_PLAN.md` (hosted, multi-user transition), `ROADMAP_IDEAS.md` (feature ideas)
 

@@ -1,9 +1,10 @@
 import { Notifications, notifications } from '@mantine/notifications'
-import { screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import type { UpdateResult } from './api/client'
-import { SYNC_SEEN_KEY, syncSeen } from './lib/syncNotice'
+import { GAME_VERSION_KEY } from './lib/gameVersion'
+import { syncSeen, syncSeenKey } from './lib/syncNotice'
 import { characters, status } from './test/status'
 import { mockApi, renderWithProviders } from './test/utils'
 
@@ -63,7 +64,7 @@ describe('addon sync notifications', () => {
 
   it('toasts what the sync imported since the page last saw the status', async () => {
     const before = status()
-    localStorage.setItem(SYNC_SEEN_KEY, JSON.stringify(syncSeen(before)))
+    localStorage.setItem(syncSeenKey('forever'), JSON.stringify(syncSeen(before)))
     mockApi({
       ...stale(),
       '/api/status': status({ data_version: 2, last_auctionator_sync: '2026-09-24 11:00:00' }),
@@ -71,13 +72,43 @@ describe('addon sync notifications', () => {
     renderApp()
     expect(await screen.findByText('Addon data imported')).toBeInTheDocument()
     expect(screen.getByText('Loaded Auctionator prices for ClassicBetaPvE.')).toBeInTheDocument()
-    expect(JSON.parse(localStorage.getItem(SYNC_SEEN_KEY) ?? '')).toMatchObject({ data_version: 2 })
+    expect(JSON.parse(localStorage.getItem(syncSeenKey('forever')) ?? '')).toMatchObject({ data_version: 2 })
   })
 
   it('does not announce the data it finds on a first visit', async () => {
     mockApi({ ...stale(), '/api/status': status() })
     renderApp()
-    await waitFor(() => expect(localStorage.getItem(SYNC_SEEN_KEY)).not.toBeNull())
+    await waitFor(() => expect(localStorage.getItem(syncSeenKey('forever'))).not.toBeNull())
     expect(screen.queryByText('Addon data imported')).not.toBeInTheDocument()
+  })
+})
+
+describe('game version switch', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    notifications.clean()
+    localStorage.clear()
+  })
+
+  const versionsOf = (fetch: ReturnType<typeof mockApi>, path: string) =>
+    fetch.mock.calls
+      .map(([r]) => new URL(r.url))
+      .filter((u) => u.pathname === path)
+      .map((u) => u.searchParams.get('game_version'))
+
+  it('asks the API about the chosen game and remembers the choice', async () => {
+    const fetch = mockApi({
+      '/api/game-data/update': { ...result, updated: false },
+      '/api/status': status(),
+      '/api/characters': characters,
+    })
+    renderApp()
+    await waitFor(() => expect(versionsOf(fetch, '/api/status')).toContain('forever'))
+    expect(versionsOf(fetch, '/api/status')).not.toContain('tbc')
+
+    fireEvent.click(screen.getByText('TBC Anniversary'))
+    await waitFor(() => expect(versionsOf(fetch, '/api/status')).toContain('tbc'))
+    await waitFor(() => expect(versionsOf(fetch, '/api/game-data/update')).toEqual(['forever', 'tbc']))
+    expect(JSON.parse(localStorage.getItem(GAME_VERSION_KEY) ?? '')).toBe('tbc')
   })
 })

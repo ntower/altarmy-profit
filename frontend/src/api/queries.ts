@@ -1,18 +1,32 @@
 import { useEffect, useRef } from 'react'
 import { notifications } from '@mantine/notifications'
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import { call, client, type Evaluation, type Selection, type Sources, type Status, type UpdateResult } from './client'
+import {
+  call,
+  client,
+  type Evaluation,
+  type GameVersion,
+  type Selection,
+  type Sources,
+  type Status,
+  type UpdateResult,
+} from './client'
+import { useGameVersion } from '../lib/gameVersion'
 import type { Choices } from '../lib/choices'
 import { importedSince, readSyncSeen, syncSeen, writeSyncSeen } from '../lib/syncNotice'
 
+/** The `game_version` query parameter every per-game route takes. */
+const gv = (gameVersion: GameVersion) => ({ params: { query: { game_version: gameVersion } } })
+
 /**
- * Server status. Fetching it also makes the server re-import the Alt Army and Auctionator files if WoW
+ * The chosen game's server status. Fetching it also makes the server re-import the Alt Army and Auctionator files if WoW
  * rewrote them (on logout or /reload), so poll it, and refetch when the user comes back from the game.
  */
 export function useStatus() {
+  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['status'],
-    queryFn: () => call(client.GET('/api/status')),
+    queryKey: ['status', gameVersion],
+    queryFn: () => call(client.GET('/api/status', gv(gameVersion))),
     refetchInterval: 30_000,
     refetchOnWindowFocus: true,
   })
@@ -24,10 +38,11 @@ export function useDataVersion() {
 }
 
 export function useCharacters() {
+  const gameVersion = useGameVersion()
   const version = useDataVersion()
   return useQuery({
-    queryKey: ['characters', version],
-    queryFn: () => call(client.GET('/api/characters')),
+    queryKey: ['characters', gameVersion, version],
+    queryFn: () => call(client.GET('/api/characters', gv(gameVersion))),
     enabled: version !== undefined,
     placeholderData: keepPreviousData,
   })
@@ -54,14 +69,16 @@ const orUndefined = <T>(v: T | null) => v ?? undefined
 
 /** Ranked recipes for the selected realm/faction's characters. */
 export function useRank(params: RankParams) {
+  const gameVersion = useGameVersion()
   const version = useDataVersion()
   return useQuery({
-    queryKey: ['rank', version, params],
+    queryKey: ['rank', gameVersion, version, params],
     queryFn: () =>
       call(
         client.GET('/api/rank', {
           params: {
             query: {
+              game_version: gameVersion,
               include_unlearned: params.includeUnlearned,
               include_trivial: params.includeTrivial,
               exits: params.exits,
@@ -93,13 +110,15 @@ export function useEvaluations(
   choices: Readonly<Record<number, Choices>>,
   { includeUnlearned, includeTrivial, exits, version }: EvaluateParams,
 ): Readonly<Record<number, EvaluationState>> {
+  const gameVersion = useGameVersion()
   const ids = Object.keys(choices).map(Number)
   return useQueries({
     queries: ids.map((id) => ({
-      queryKey: ['evaluate', version, id, includeUnlearned, includeTrivial, exits, choices[id]],
+      queryKey: ['evaluate', gameVersion, version, id, includeUnlearned, includeTrivial, exits, choices[id]],
       queryFn: () =>
         call(
           client.POST('/api/evaluate', {
+            ...gv(gameVersion),
             body: {
               recipe_id: id,
               include_unlearned: includeUnlearned,
@@ -111,7 +130,7 @@ export function useEvaluations(
         ),
       // Observers are matched by position, so only keep data that belongs to the same recipe.
       placeholderData: (previous: Evaluation | undefined, query?: { queryKey: readonly unknown[] }) =>
-        query?.queryKey[2] === id ? previous : undefined,
+        query?.queryKey[3] === id ? previous : undefined,
     })),
     combine: (results) =>
       Object.fromEntries(
@@ -121,16 +140,18 @@ export function useEvaluations(
 }
 
 export function useAuctionatorFiles() {
+  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['auctionator', 'files'],
-    queryFn: () => call(client.GET('/api/auctionator/files')),
+    queryKey: ['auctionator', gameVersion, 'files'],
+    queryFn: () => call(client.GET('/api/auctionator/files', gv(gameVersion))),
   })
 }
 
 export function useAltArmyFiles() {
+  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['altarmy', 'files'],
-    queryFn: () => call(client.GET('/api/altarmy/files')),
+    queryKey: ['altarmy', gameVersion, 'files'],
+    queryFn: () => call(client.GET('/api/altarmy/files', gv(gameVersion))),
   })
 }
 
@@ -140,22 +161,24 @@ function showError(title: string) {
 
 /** Items never sold on the AH: searches only vendor or disenchant them. */
 export function useAhBlocked() {
+  const gameVersion = useGameVersion()
   return useQuery({
-    queryKey: ['ah-blocked'],
-    queryFn: () => call(client.GET('/api/ah-blocked')),
+    queryKey: ['ah-blocked', gameVersion],
+    queryFn: () => call(client.GET('/api/ah-blocked', gv(gameVersion))),
   })
 }
 
 /** Never sell an item on the AH, or allow it again; searches and re-costed plans are refetched. */
 export function useSetAhBlocked() {
+  const gameVersion = useGameVersion()
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ itemId, blocked }: { itemId: number; blocked: boolean }) => {
-      const params = { params: { path: { item_id: itemId } } }
+      const params = { params: { path: { item_id: itemId }, query: { game_version: gameVersion } } }
       return call(blocked ? client.PUT('/api/ah-blocked/{item_id}', params) : client.DELETE('/api/ah-blocked/{item_id}', params))
     },
     onSuccess: (list, { itemId, blocked }) => {
-      queryClient.setQueryData(['ah-blocked'], list)
+      queryClient.setQueryData(['ah-blocked', gameVersion], list)
       if (blocked) {
         const name = list.details[itemId]?.name ?? `Item ${itemId}`
         notifications.show({
@@ -175,8 +198,10 @@ function useInvalidateAll() {
   return () => queryClient.invalidateQueries()
 }
 
-function updateGameData(onlyIfNew: boolean) {
-  return call(client.POST('/api/game-data/update', { params: { query: { only_if_new: onlyIfNew } } }))
+function updateGameData(gameVersion: GameVersion, onlyIfNew: boolean) {
+  return call(
+    client.POST('/api/game-data/update', { params: { query: { game_version: gameVersion, only_if_new: onlyIfNew } } }),
+  )
 }
 
 function showUpdated(r: UpdateResult, title: string) {
@@ -188,9 +213,10 @@ function showUpdated(r: UpdateResult, title: string) {
 }
 
 export function useUpdateGameData() {
+  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: () => updateGameData(false),
+    mutationFn: () => updateGameData(gameVersion, false),
     onSuccess: (r) => {
       showUpdated(r, 'Game data updated')
       return invalidate()
@@ -200,13 +226,14 @@ export function useUpdateGameData() {
 }
 
 /**
- * Once per page load, fetch the newest game build if the database does not have it yet. Failures only
- * go to the console: being offline should not raise a toast on every visit.
+ * Once per page load and game version, fetch the chosen game's newest build if its database does not have
+ * it yet. Failures only go to the console: being offline should not raise a toast on every visit.
  */
 export function useAutoUpdateGameData() {
+  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   const { mutate } = useMutation({
-    mutationFn: () => updateGameData(true),
+    mutationFn: (v: GameVersion) => updateGameData(v, true),
     onSuccess: (r) => {
       if (!r.updated) return
       showUpdated(r, 'New game data downloaded')
@@ -214,12 +241,12 @@ export function useAutoUpdateGameData() {
     },
     onError: (error) => console.warn('Automatic game data update failed:', error),
   })
-  const started = useRef(false) // StrictMode runs effects twice in development
+  const started = useRef(new Set<GameVersion>()) // StrictMode runs effects twice in development
   useEffect(() => {
-    if (started.current) return
-    started.current = true
-    mutate()
-  }, [mutate])
+    if (started.current.has(gameVersion)) return
+    started.current.add(gameVersion)
+    mutate(gameVersion)
+  }, [mutate, gameVersion])
 }
 
 /**
@@ -227,38 +254,42 @@ export function useAutoUpdateGameData() {
  * open (status polling), or since it was last open.
  */
 export function useSyncNotifications() {
+  const gameVersion = useGameVersion()
   const status = useStatus().data
   useEffect(() => {
     if (!status) return
-    const lines = importedSince(readSyncSeen(), status)
-    writeSyncSeen(syncSeen(status))
+    const lines = importedSince(readSyncSeen(gameVersion), status)
+    writeSyncSeen(gameVersion, syncSeen(status))
     if (lines.length) notifications.show({ color: 'green', title: 'Addon data imported', message: lines.join(' ') })
-  }, [status])
+  }, [status, gameVersion])
 }
 
 /** The mutations below answer with the new status: show it at once, then refetch the rest. */
 function useApplyStatus() {
+  const gameVersion = useGameVersion()
   const queryClient = useQueryClient()
   return (status: Status) => {
-    queryClient.setQueryData(['status'], status)
+    queryClient.setQueryData(['status', gameVersion], status)
     return queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] !== 'status' })
   }
 }
 
 /** Switch realm/faction; the server swaps in that realm's Auctionator prices. */
 export function useSelectRealm() {
+  const gameVersion = useGameVersion()
   const apply = useApplyStatus()
   return useMutation({
-    mutationFn: (body: Selection) => call(client.PUT('/api/selection', { body })),
+    mutationFn: (body: Selection) => call(client.PUT('/api/selection', { ...gv(gameVersion), body })),
     onSuccess: apply,
     onError: showError('Could not switch realm'),
   })
 }
 
 export function useSetSources() {
+  const gameVersion = useGameVersion()
   const apply = useApplyStatus()
   return useMutation({
-    mutationFn: (body: Sources) => call(client.PUT('/api/sources', { body })),
+    mutationFn: (body: Sources) => call(client.PUT('/api/sources', { ...gv(gameVersion), body })),
     onSuccess: apply,
     onError: showError('Could not use that file'),
   })
@@ -266,18 +297,20 @@ export function useSetSources() {
 
 /** Re-import both addon files even if they look unchanged. */
 export function useSyncNow() {
+  const gameVersion = useGameVersion()
   const apply = useApplyStatus()
   return useMutation({
-    mutationFn: () => call(client.POST('/api/sync')),
+    mutationFn: () => call(client.POST('/api/sync', gv(gameVersion))),
     onSuccess: apply,
     onError: showError('Sync failed'),
   })
 }
 
 export function useReload() {
+  const gameVersion = useGameVersion()
   const invalidate = useInvalidateAll()
   return useMutation({
-    mutationFn: () => call(client.POST('/api/reload')),
+    mutationFn: () => call(client.POST('/api/reload', gv(gameVersion))),
     onSuccess: () => invalidate(),
     onError: showError('Reload failed'),
   })

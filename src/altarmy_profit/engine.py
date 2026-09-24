@@ -21,6 +21,7 @@ PROFESSIONS = (
     "First Aid",
     "Fishing",
     "Herbalism",
+    "Jewelcrafting",
     "Leatherworking",
     "Mining",
     "Poisons",
@@ -256,12 +257,14 @@ class Market:
         exits: frozenset[str] = ALL_EXITS,
         no_ah: frozenset[int] = frozenset(),
         include_trivial: bool = True,
+        mail_postage: int = MAIL_POSTAGE,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
         profession craft it when nobody has learned it. Crafts are only sold via `exits`, and items in
         `no_ah` never on the AH (they may still be bought there). Without `include_trivial` the final craft
-        is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey."""
+        is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey.
+        `mail_postage` is the copper charged per mail attachment on this game version."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
@@ -272,6 +275,7 @@ class Market:
         self.exits = exits
         self.no_ah = no_ah
         self.include_trivial = include_trivial
+        self.mail_postage = mail_postage
         self._by_output: dict[int, list[Recipe]] = {}
         for r in recipes:
             self._by_output.setdefault(r.output_item_id, []).append(r)
@@ -337,7 +341,7 @@ class Market:
         """Who disenchants what `who` crafted and the postage per item to get it to them.
 
         ("", 0) if `who` enchants (or no characters are known), the best other enchanter and
-        MAIL_POSTAGE otherwise, None if nobody enchants.
+        `mail_postage` otherwise, None if nobody enchants.
         """
         if not self.crafters or any(c.name == who and c.enchanting for c in self.crafters):
             return "", 0
@@ -345,7 +349,7 @@ class Market:
         if not enchanters:
             return None
         best = min(enchanters, key=lambda c: (-c.enchanting, c.name))
-        return best.name, MAIL_POSTAGE
+        return best.name, self.mail_postage
 
     def _exits_at(self, exits: list[Exit], who: str) -> list[Exit]:
         """`exits` for an item `who` holds: disenchanting charged postage or dropped per `_disenchanter`."""
@@ -363,7 +367,7 @@ class Market:
         """Copper to mail `qty` units: one attachment per stack."""
         item = self.items.get(item_id)
         stack = max(1, item.stack_size) if item else 1
-        return MAIL_POSTAGE * -(-qty // stack)
+        return self.mail_postage * -(-qty // stack)
 
     # --- buying / chains ---------------------------------------------------------------
     def _crafter_names(self, recipe: Recipe) -> list[str]:

@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { Status } from '../api/client'
+import type { GameVersion, Status } from '../api/client'
 import { parseStored } from './storage'
 
 /** The parts of the status that say what the addon sync last imported. */
@@ -10,8 +10,9 @@ const seenSchema = z.object({
 })
 export type SyncSeen = z.infer<typeof seenSchema>
 
-/** In localStorage, so an import that happened while the page was closed still gets announced once. */
-export const SYNC_SEEN_KEY = 'altarmy-profit.syncSeen'
+/** In localStorage per game version, so an import that happened while the page was closed still gets
+ * announced once. */
+export const syncSeenKey = (gameVersion: GameVersion) => `altarmy-profit.syncSeen.${gameVersion}`
 
 export function syncSeen(s: Status): SyncSeen {
   return {
@@ -21,17 +22,17 @@ export function syncSeen(s: Status): SyncSeen {
   }
 }
 
-export function readSyncSeen(): SyncSeen | null {
+export function readSyncSeen(gameVersion: GameVersion): SyncSeen | null {
   try {
-    return parseStored(seenSchema.nullable(), localStorage.getItem(SYNC_SEEN_KEY) ?? undefined, null)
+    return parseStored(seenSchema.nullable(), localStorage.getItem(syncSeenKey(gameVersion)) ?? undefined, null)
   } catch {
     return null
   }
 }
 
-export function writeSyncSeen(seen: SyncSeen) {
+export function writeSyncSeen(gameVersion: GameVersion, seen: SyncSeen) {
   try {
-    localStorage.setItem(SYNC_SEEN_KEY, JSON.stringify(seen))
+    localStorage.setItem(syncSeenKey(gameVersion), JSON.stringify(seen))
   } catch {
     // Storage blocked: announcements then only cover imports while the page is open.
   }
