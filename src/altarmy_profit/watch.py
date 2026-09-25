@@ -18,7 +18,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 
 from . import prices, versions
 
@@ -47,7 +47,7 @@ class Found:
     mtime_ns: int
 
 
-def version_of(path: Path) -> str | None:
+def version_of(path: PurePath) -> str | None:
     """The game version whose flavor folder `path` is in."""
     parts = {p.lower() for p in path.parts}
     for v in versions.VERSIONS.values():

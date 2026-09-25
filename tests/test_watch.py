@@ -3,7 +3,7 @@
 import gzip
 import os
 from collections.abc import Mapping
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,9 +44,11 @@ def test_finds_both_versions_files_characters_first(wow_root: Path, tbc_files: P
 
 
 def test_version_of_a_path() -> None:
-    assert watch.version_of(Path(r"C:\WoW\_anniversary_\WTF\Account\A\SavedVariables\x.lua")) == "tbc"
-    assert watch.version_of(Path(r"C:\WoW\_classic_beta_\WTF\x.lua")) == "forever"
-    assert watch.version_of(Path(r"C:\WoW\_retail_\WTF\x.lua")) is None
+    win = PureWindowsPath  # Windows paths on any OS (CI runs Linux)
+    assert watch.version_of(win(r"C:\WoW\_anniversary_\WTF\Account\A\SavedVariables\x.lua")) == "tbc"
+    assert watch.version_of(win(r"C:\WoW\_classic_beta_\WTF\x.lua")) == "forever"
+    assert watch.version_of(win(r"C:\WoW\_retail_\WTF\x.lua")) is None
+    assert watch.version_of(PurePosixPath("/wow/_anniversary_/WTF/x.lua")) == "tbc"
 
 
 def test_changed_and_state_file(wow_root: Path, tmp_path: Path) -> None:

@@ -1,10 +1,25 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { robeResult } from '../test/results'
 import { characters, status } from '../test/status'
 import { mockApi, renderWithProviders } from '../test/utils'
 import { SearchTab } from './SearchTab'
+
+// Tests that only check paging swap the results table for one line per row: rendering 150 full rows
+// in jsdom takes seconds on a loaded machine.
+const table = vi.hoisted(() => ({ stub: false }))
+vi.mock('./ResultsTable', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./ResultsTable')>()
+  return {
+    ...actual,
+    ResultsTable: (props: Parameters<typeof actual.ResultsTable>[0]) =>
+      table.stub ? <div>{props.results.length} rows</div> : <actual.ResultsTable {...props} />,
+  }
+})
+afterEach(() => {
+  table.stub = false
+})
 
 const noResults = { results: [], total: 0, items: {}, classes: {} }
 
@@ -88,7 +103,8 @@ describe('SearchTab', () => {
     expect(urls(fetch, '/api/rank')).toEqual([])
   })
 
-  it('shows 50 more results at a time', async () => {
+  it('shows 50 more results at a time', { timeout: 15_000 }, async () => {
+    table.stub = true
     // As many results as asked for, out of 120.
     const rank = (url: URL) => {
       const top = Math.min(Number(url.searchParams.get('top')), 120)
@@ -97,11 +113,17 @@ describe('SearchTab', () => {
     }
     const fetch = mockApi({ '/api/status': status(), '/api/characters': characters, '/api/rank': rank })
     renderWithProviders(<SearchTab />)
-    expect(await screen.findByText('Showing 50 of 120')).toBeInTheDocument()
+    const slow = { timeout: 5000 }
+    expect(await screen.findByText('Showing 50 of 120', {}, slow)).toBeInTheDocument()
+    expect(screen.getByText('50 rows')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Show more' }))
-    expect(await screen.findByText('Showing 100 of 120')).toBeInTheDocument()
+    expect(await screen.findByText('Showing 100 of 120', {}, slow)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Show more' }))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument())
+    await waitFor(
+      () => expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument(),
+      slow,
+    )
+    expect(screen.getByText('120 rows')).toBeInTheDocument()
     expect(urls(fetch, '/api/rank').map((u) => u.searchParams.get('top'))).toEqual(['50', '100', '150'])
   })
 

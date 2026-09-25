@@ -1,6 +1,6 @@
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { components } from '../api/schema'
 import { GUEST, LINKED, mockApi, renderWithProviders } from '../test/utils'
 import { UploadTab } from './UploadTab'
@@ -37,6 +37,18 @@ const fileInput = () => document.querySelector<HTMLInputElement>('input[type="fi
 
 describe('UploadTab', () => {
   it('uploads a file for the chosen game and shows what it imported', async () => {
+    // Node's FormData (which Request needs) refuses jsdom's File on newer Node versions, so record what the
+    // app appends and pass Node a placeholder.
+    const appended = new Map<string, unknown>()
+    vi.stubGlobal(
+      'FormData',
+      class extends FormData {
+        override append(name: string, value: string | Blob, fileName?: string): void {
+          appended.set(name, value)
+          super.append(name, typeof value === 'string' ? value : `file ${fileName}`)
+        }
+      },
+    )
     const fetch = mockApi({ '/api/uploads': (url: URL) => (url.search.includes('game_version') ? characters : history) })
     renderWithProviders(<UploadTab />, LINKED)
     expect(screen.getAllByText(/_classic_beta_/)[0]).toBeInTheDocument() // Forever's SavedVariables folder
@@ -49,11 +61,9 @@ describe('UploadTab', () => {
 
     const post = fetch.mock.calls.map(([r]) => r).find((r) => r.method === 'POST')
     expect(new URL(post!.url).searchParams.get('game_version')).toBe('forever')
-    const form = await post!.formData()
-    expect(form.get('kind')).toBe('altarmy')
-    expect(form.get('modified_at')).toBe('1790000000000')
-    // jsdom's File doesn't survive Node's Request (name and content are lost); the browser check covers them
-    expect(form.has('file')).toBe(true)
+    expect(appended.get('kind')).toBe('altarmy')
+    expect(appended.get('modified_at')).toBe('1790000000000')
+    expect(appended.get('file')).toBe(file)
     await waitFor(() => expect(screen.getByText('no AUCTIONATOR_PRICE_DATABASE in file')).toBeInTheDocument())
   })
 
