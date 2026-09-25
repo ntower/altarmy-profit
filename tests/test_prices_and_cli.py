@@ -116,6 +116,89 @@ def test_record_daily_backfills_then_updates_from_the_newest_day(conn: Connectio
     assert prices.daily(conn, ah, 1) == [(d1, 100, 120, 7), (d2, 95, 115, 4), (d3, 90, 90, None)]
 
 
+def test_record_daily_pools_uploaders_days(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    d = date(2026, 9, 2)
+    prices.record_daily(conn, ah, {1: ItemPrice(100, {d: DayStats(120, 100, 7)})})
+    prices.record_daily(conn, ah, {1: ItemPrice(90, {d: DayStats(110, 90, 3)})})  # another uploader
+    assert prices.daily(conn, ah, 1) == [(d, 90, 120, 7)]
+    prices.record_daily(conn, ah, {1: ItemPrice(100, {d: DayStats(120, 100, 7)})})  # sent again
+    assert prices.daily(conn, ah, 1) == [(d, 90, 120, 7)]
+
+
+def fresh(prices_by_item: dict[int, int], at: datetime = T0) -> list[Observation]:
+    return [Observation(i, p, at) for i, p in prices_by_item.items()]
+
+
+def test_screen_needs_enough_comparable_items() -> None:
+    baseline = dict.fromkeys(range(19), 100)
+    wild = fresh(dict.fromkeys(range(19), 10000))
+    assert prices.screen(wild, baseline, T0, trust=1.0) is None
+    stale = fresh(dict.fromkeys(range(40), 10000), at=T0 - timedelta(days=2))  # not seen on the scan day
+    assert prices.screen(stale, dict.fromkeys(range(40), 100), T0, trust=1.0) is None
+
+
+def test_screen_quarantines_when_many_prices_are_wild() -> None:
+    baseline = dict.fromkeys(range(100), 100)
+    scan = dict.fromkeys(range(100), 100)
+    assert prices.screen(fresh(scan), baseline, T0, trust=1.0) is False
+    for i in range(20):  # 20% more than 4x off: fine for a trusted uploader, not for a distrusted one
+        scan[i] = 401 if i % 2 else 24
+    assert prices.screen(fresh(scan), baseline, T0, trust=1.0) is False
+    assert prices.screen(fresh(scan), baseline, T0, trust=0.25) is True
+    for i in range(40):
+        scan[i] = 10_000
+    assert prices.screen(fresh(scan), baseline, T0, trust=1.0) is True
+
+
+def test_screened_auctionator_scan_is_quarantined(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    day = T0.astimezone().date()
+    history = {
+        i: ItemPrice(100, {day - timedelta(days=n): DayStats(100, 100, 5) for n in range(1, 4)})
+        for i in range(1, 31)
+    }
+    earlier = T0 - timedelta(days=1)
+    prices.record_auctionator(conn, ah, history, earlier)
+    pc = schema.price_current
+    conn.execute(pc.update().values(median_7d=100, scans_7d=3))  # as the merge job would
+    scaled = {i: ItemPrice(10_000, {day: DayStats(10_000, 10_000, 5)}) for i in range(1, 31)}
+
+    got = prices.record_auctionator(conn, ah, scaled, T0, uploader_uid="u1", trust=1.0)
+    assert got == prices.Recorded(moved=0, quarantined=True, screened=True)
+    snap = schema.price_snapshots
+    assert conn.execute(select(snap.c.status).order_by(snap.c.id)).scalars().all() == [
+        "accepted",
+        "quarantined",
+    ]
+    assert set(prices.load_current(conn, ah).values()) == {100}  # nothing moved
+    assert prices.daily(conn, ah, 1)[-1][0] == day - timedelta(days=1)  # no daily rows either
+
+    unscreened = prices.record_auctionator(conn, ah, scaled, T0)  # the local sync is not screened
+    assert unscreened == prices.Recorded(moved=30)
+
+
+def test_load_prices_sells_at_the_lower_of_now_and_the_median(conn: Connection) -> None:
+    ah = prices.unnamed_auction_house(conn, FOREVER)
+    prices.record_snapshot(
+        conn,
+        ah,
+        "auctionator",
+        T0,
+        [Observation(1, 3_330_000, T0), Observation(2, 80, T0), Observation(3, 5, T0)],
+    )
+    prices.set_price(conn, ah, 4, 500)
+    pc = schema.price_current
+    for item_id, median in ((1, 4900), (2, 100), (4, 50)):
+        conn.execute(pc.update().where(pc.c.item_id == item_id).values(median_7d=median))
+    buy, sell = prices.load_buy_and_sell(conn, ah)
+    assert buy == {1: 3_330_000, 2: 80, 3: 5, 4: 500}
+    # a lone overpriced listing sells at the median; below it, at the price; no median, the price; a price
+    # set by hand is used as it is
+    assert sell == {1: 4900, 2: 80, 3: 5, 4: 500}
+    assert prices.load_buy_and_sell(conn, None) == ({}, {})
+
+
 def test_prune_keeps_what_price_current_points_at(conn: Connection) -> None:
     ah = prices.unnamed_auction_house(conn, FOREVER)
     old = T0 - timedelta(days=100)
@@ -295,13 +378,17 @@ def test_cli_skips_old_version_files_with_a_database_url(
     assert old.is_file()
 
 
-def test_cli_migrate_and_prune(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_migrate_prune_and_merge(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     dbfile = str(tmp_path / "m.sqlite")
     cli.main(["--db", dbfile, "migrate"])
     assert "Database at revision" in capsys.readouterr().out
     cli.main(["--db", dbfile, "set-price", "1", "45"])
     cli.main(["--db", dbfile, "prune"])
     assert "Pruned" in capsys.readouterr().out
+    cli.main(["--db", dbfile, "merge"])
+    assert "Merged 1 auction houses of every game version (0 changed); 1 price observations stored." in (
+        capsys.readouterr().out
+    )
 
 
 def test_cli_ingest_only_if_new_skips_a_loaded_build(

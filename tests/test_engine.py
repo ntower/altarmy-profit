@@ -82,6 +82,32 @@ def test_ah_net_of_cut_beats_vendor() -> None:
     assert res.revenue == ah_net(1000) == 950
 
 
+def test_sells_at_the_sell_price_and_buys_at_the_price() -> None:
+    # A lone 333g listing: the 7-day median says the robe sells for 1000.
+    m = Market(
+        make_market({}).items,
+        make_market({}).recipes,
+        {LINEN: 20, THREAD: 100, GREEN: 3_330_000},
+        sell_prices={LINEN: 10, GREEN: 1000},
+    )
+    res = must_evaluate(m, m.recipes[0])
+    assert res.cost == 10 * 20 + 100  # bought at the current price
+    assert res.best_exit == "ah"
+    assert res.revenue == ah_net(1000)
+
+
+def test_sell_prices_default_to_the_prices() -> None:
+    m = make_market({LINEN: 20, THREAD: 100, GREEN: 1000})
+    assert m.sell_prices == m.prices
+
+
+def test_disenchant_materials_are_valued_at_the_sell_price() -> None:
+    de = [DisenchantRow(4, 2, 15, 25, DUST, 1.0, 1, 1)]
+    base = make_market({}, disenchant=de)
+    m = Market(base.items, base.recipes, {DUST: 5000}, de, sell_prices={DUST: 1000})
+    assert m.disenchant_value(base.items[GREEN]) == ah_net(1000)
+
+
 def test_disenchant_expected_value() -> None:
     de = [DisenchantRow(4, 2, 15, 25, DUST, 0.75, 1, 2)]  # 0.75 * 1.5 dust
     m = make_market({LINEN: 20, THREAD: 100, DUST: 1000}, disenchant=de)

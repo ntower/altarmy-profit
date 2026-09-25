@@ -12,8 +12,11 @@ const realms: AuctionHouse[] = [
   { id: 2, realm: 'Dreamscythe', faction: 'Horde', prices: 1, last_scan: null },
 ]
 
+const noStats = { median_7d: null, avail_7d: null, scans_7d: null }
+
 const history: PriceHistory = {
   item: linen,
+  stats: noStats,
   days: [
     { day: '2026-09-24', low: 20, high: 35, available: 40 },
     { day: '2026-09-23', low: 18, high: 30, available: null },
@@ -23,7 +26,8 @@ const history: PriceHistory = {
 function prices(url: URL): Prices {
   const q = url.searchParams.get('q')?.toLowerCase() ?? ''
   const items = [thread, robe, linen].filter((i) => i.name.toLowerCase().includes(q))
-  return { items, total: items.length, gated: false }
+  const stats = Object.fromEntries(items.map((i) => [i.id, i === linen ? { median_7d: 18, avail_7d: 40, scans_7d: 5 } : noStats]))
+  return { items, stats, total: items.length, gated: false }
 }
 
 function requests(fetch: ReturnType<typeof mockApi>, pathname: string) {
@@ -40,6 +44,8 @@ describe('PricesTab', () => {
     expect(screen.getByRole('combobox', { name: 'Auction house' })).toHaveValue('Classic Beta PvE: 3 prices')
     const row = screen.getByText('Linen Cloth').closest('tr')
     expect(shown(row)).toContain('20')
+    expect(shown(row)).toContain('18') // the 7-day median, over 5 days
+    expect(row).toHaveTextContent('5d')
     expect(requests(fetch, '/api/prices')[0]?.searchParams.get('auction_house_id')).toBe('1')
 
     await userEvent.type(screen.getByRole('textbox', { name: 'Item' }), 'robe')
@@ -77,7 +83,7 @@ describe('PricesTab', () => {
     mockApi({
       '/api/status': status({ characters: 0, selection: null, auction_house_id: null }),
       '/api/realms': realms,
-      '/api/prices': { items: [linen], total: 1, gated: true },
+      '/api/prices': { items: [linen], stats: { 1: noStats }, total: 1, gated: true },
     })
     renderWithProviders(<PricesTab />, GUEST)
     expect(await screen.findByText(/Guests see prices of items up to level 30/)).toBeInTheDocument()

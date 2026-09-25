@@ -66,6 +66,9 @@ class Status(BaseModel):
     selection: SelectionModel | None
     auction_house_id: int | None  # the selection's auction house (the unnamed one without characters)
     data_version: int  # bumped whenever a sync re-imported something: refetch characters and results
+    price_version: (
+        int | None
+    )  # the auction house's, bumped by each merge that moved its statistics: refetch results
     warnings: list[str]  # addon files missing, unreadable, or without prices for the selection
 
 
@@ -175,7 +178,10 @@ class ItemInfo(BaseModel):
     description: str | None
     sell_price: int
     icon: str | None  # wow.zamimg.com icon name
-    ah_price: int | None
+    ah_price: int | None  # the current minimum buyout: what buying it costs
+    # what selling it on the AH counts as: the lower of ah_price and the 7-day median (hand-set prices as
+    # they are), so a lone overpriced listing isn't taken for the going rate
+    ah_sell_price: int | None
     vendor_price: int | None  # per unit, if a vendor sells it
 
 
@@ -320,10 +326,32 @@ class AuctionHouseOut(BaseModel):
     last_scan: str | None  # newest price seen, "YYYY-MM-DD HH:MM:SS" UTC
 
 
+class PriceStatsOut(BaseModel):
+    """An item's pooled statistics over the last 7 days (filled hourly; None until then or without data)."""
+
+    median_7d: int | None  # median of the daily medians, copper
+    avail_7d: int | None  # median of the most seen up at once per day
+    scans_7d: int | None  # days with a scan of it
+
+
 class PricesOut(BaseModel):
     items: list[ItemInfo]  # by name; `ah_price` is the auction house's current price
+    stats: dict[int, PriceStatsOut]  # per listed item
     total: int  # how many items matched
     gated: bool  # True if items above the free tier's level were left out
+
+
+class CoverageOut(BaseModel):
+    """How well one auction house is scanned, so uploaders see where scans are needed."""
+
+    auction_house_id: int
+    realm: str
+    faction: str  # "" if both factions share it
+    prices: int  # items with a current price
+    last_scan: str | None  # the newest accepted scan, "YYYY-MM-DD HH:MM:SS" UTC
+    last_scan_items: int  # items in that scan
+    scans_7d: int  # accepted scans in the last 7 days
+    uploaders_7d: int  # how many users sent them
 
 
 class DayOut(BaseModel):
@@ -335,6 +363,7 @@ class DayOut(BaseModel):
 
 class PriceHistoryOut(BaseModel):
     item: ItemInfo
+    stats: PriceStatsOut | None  # None if the item has no current price
     days: list[DayOut]  # newest first
 
 
@@ -355,6 +384,7 @@ class RealmPricesOut(BaseModel):
     faction: str
     items: int  # items priced in the scan
     moved: int  # of them, items whose current price changed
+    quarantined: bool  # far off this auction house's recent prices, so not used
 
 
 class UploadResult(BaseModel):
@@ -401,6 +431,7 @@ class AppState:
     database: db.Database  # shared by every version
     cache_dir: Path
     cache: service.MarketCache
+    rank_cache: service.RankCache
     update_lock: threading.Lock
     sync_lock: threading.Lock
     wow_roots: Sequence[Path]  # where to look for the addons' SavedVariables
@@ -588,6 +619,7 @@ def _status(
         selection=_selection_model(sel),
         auction_house_id=ah,
         data_version=service.data_version(conn, uid, gv),
+        price_version=prices.price_version(conn, ah),
         warnings=warnings or [],
     )
 
@@ -688,9 +720,13 @@ def get_rank(
     inclusive; an omitted bound is unbounded (so losses are included unless `min_profit` is set)."""
     base, chars, no_ah = _selected(state, user)
     filters = engine.Filters(min_cost, max_cost, min_profit, max_profit, min_roi, max_roi)
-    matches = service.search(
-        base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
-    )
+    key = (user.uid, tuple(chars), include_unlearned, include_trivial, frozenset(exits), filters, no_ah)
+    matches = state.rank_cache.get(key, base)
+    if matches is None:
+        matches = service.search(
+            base, chars, include_unlearned, filters, frozenset(exits), no_ah, include_trivial
+        )
+        state.rank_cache.put(key, base, matches)
     results = matches[:top]
     crafters = altarmy.crafters(chars)
     return RankResponse(
@@ -751,7 +787,12 @@ def _item_details(
 ) -> dict[int, ItemInfo]:
     details = store.load_item_details(conn, state.key, item_ids)
     return {
-        i: ItemInfo(**asdict(d), ah_price=base.prices.get(i), vendor_price=_vendor_price(base, i))
+        i: ItemInfo(
+            **asdict(d),
+            ah_price=base.prices.get(i),
+            ah_sell_price=base.sell_prices.get(i),
+            vendor_price=_vendor_price(base, i),
+        )
         for i, d in details.items()
     }
 
@@ -994,9 +1035,40 @@ def get_prices(
         ids, total = store.search_prices(conn, state.key, auction_house_id, q, max_level, top)
         base = state.cache.get(auction_house_id)
         details = _item_details(state, conn, base, ids)
+        found = prices.stats(conn, auction_house_id, ids)
+    listed = [details[i] for i in ids if i in details]
     return PricesOut(
-        items=[details[i] for i in ids if i in details], total=total, gated=max_level is not None
+        items=listed,
+        stats={i.id: _stats_out(found.get(i.id)) for i in listed},
+        total=total,
+        gated=max_level is not None,
     )
+
+
+def _stats_out(s: prices.PriceStats | None) -> PriceStatsOut:
+    if s is None:
+        return PriceStatsOut(median_7d=None, avail_7d=None, scans_7d=None)
+    return PriceStatsOut(median_7d=s.median_7d, avail_7d=s.avail_7d, scans_7d=s.scans_7d)
+
+
+@router.get("/coverage")
+def get_coverage(state: State, user: CurrentUser) -> list[CoverageOut]:
+    """Each named auction house's scans: where uploads are needed. Open to every tier."""
+    with _connect(state) as conn:
+        found = prices.coverage(conn, state.key)
+    return [
+        CoverageOut(
+            auction_house_id=c.auction_house_id,
+            realm=c.realm,
+            faction=c.faction,
+            prices=c.prices,
+            last_scan=db.timestamp_text(c.last_scan),
+            last_scan_items=c.last_scan_items,
+            scans_7d=c.scans_7d,
+            uploaders_7d=c.uploaders_7d,
+        )
+        for c in found
+    ]
 
 
 @router.get("/prices/{item_id}")
@@ -1018,8 +1090,10 @@ def get_price_history(
                 403, f"Link your account to see prices of items above level {auth.FREE_TIER_MAX_LEVEL}."
             )
         days = prices.daily(conn, auction_house_id, item_id)
+        found = prices.stats(conn, auction_house_id, [item_id]).get(item_id)
     return PriceHistoryOut(
         item=item,
+        stats=None if found is None else _stats_out(found),
         days=[
             DayOut(day=d.isoformat(), low=low, high=high, available=available)
             for d, low, high, available in reversed(days)
@@ -1182,6 +1256,7 @@ def create_app(
             database,
             cache_dir,
             service.MarketCache(database, v.key, ah_cut=v.ah_cut, mail_postage=v.mail_postage),
+            service.RankCache(),
             threading.Lock(),
             threading.Lock(),
             wow_roots,

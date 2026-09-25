@@ -2,7 +2,7 @@ import { Fragment, useState } from 'react'
 import { Alert, Group, Loader, Select, Stack, Table, Text, TextInput, UnstyledButton } from '@mantine/core'
 import { useDebouncedValue } from '@mantine/hooks'
 import { z } from 'zod'
-import type { AuctionHouse } from '../api/client'
+import type { AuctionHouse, PriceStats } from '../api/client'
 import { usePriceHistory, usePrices, useRealms, useStatus } from '../api/queries'
 import { useGameVersion } from '../lib/gameVersion'
 import { useSession } from '../lib/session'
@@ -68,6 +68,19 @@ function History({ auctionHouseId, itemId }: { auctionHouseId: number; itemId: n
   )
 }
 
+/** The median of an item's daily prices over the last 7 days, and on how many days it was scanned. */
+function SevenDayMedian({ stats }: { stats: PriceStats | undefined }) {
+  if (stats?.median_7d == null) return '—'
+  return (
+    <Group gap={6} justify="flex-end" wrap="nowrap">
+      <Money copper={stats.median_7d} />
+      <Text span size="xs" c="dimmed" title="Days with a scan in the last 7">
+        {stats.scans_7d}d
+      </Text>
+    </Group>
+  )
+}
+
 /** Look up auction house prices by item name; click an item for its daily history. */
 export function PricesTab() {
   const { freeMaxLevel } = useSession()
@@ -118,6 +131,9 @@ export function PricesTab() {
                 <Table.Th>Item</Table.Th>
                 <Table.Th ta="right">Level</Table.Th>
                 <Table.Th ta="right">Auction house</Table.Th>
+                <Table.Th ta="right" title="Crafts sell at no more than this, so a lone overpriced listing doesn't count">
+                  7-day median
+                </Table.Th>
                 <Table.Th ta="right">Vendor</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -142,12 +158,15 @@ export function PricesTab() {
                     <Table.Td ta="right">{item.required_level || ''}</Table.Td>
                     <Table.Td ta="right">{item.ah_price !== null && <Money copper={item.ah_price} />}</Table.Td>
                     <Table.Td ta="right">
+                      <SevenDayMedian stats={prices.data.stats[item.id]} />
+                    </Table.Td>
+                    <Table.Td ta="right">
                       {item.vendor_price !== null ? <Money copper={item.vendor_price} /> : '—'}
                     </Table.Td>
                   </Table.Tr>
                   {open === item.id && (
                     <Table.Tr>
-                      <Table.Td colSpan={4}>
+                      <Table.Td colSpan={5}>
                         <History auctionHouseId={auctionHouseId} itemId={item.id} />
                       </Table.Td>
                     </Table.Tr>

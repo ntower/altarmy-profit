@@ -116,6 +116,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Coverage
+         * @description Each named auction house's scans: where uploads are needed. Open to every tier.
+         */
+        get: operations["get_coverage_api_coverage_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/evaluate": {
         parameters: {
             query?: never;
@@ -541,6 +561,28 @@ export interface components {
              */
             mode: "local" | "hosted";
         };
+        /**
+         * CoverageOut
+         * @description How well one auction house is scanned, so uploaders see where scans are needed.
+         */
+        CoverageOut: {
+            /** Auction House Id */
+            auction_house_id: number;
+            /** Faction */
+            faction: string;
+            /** Last Scan */
+            last_scan: string | null;
+            /** Last Scan Items */
+            last_scan_items: number;
+            /** Prices */
+            prices: number;
+            /** Realm */
+            realm: string;
+            /** Scans 7D */
+            scans_7d: number;
+            /** Uploaders 7D */
+            uploaders_7d: number;
+        };
         /** DayOut */
         DayOut: {
             /** Available */
@@ -655,6 +697,8 @@ export interface components {
         ItemInfo: {
             /** Ah Price */
             ah_price: number | null;
+            /** Ah Sell Price */
+            ah_sell_price: number | null;
             /** Bonding */
             bonding: number;
             /** Class Id */
@@ -794,6 +838,19 @@ export interface components {
             /** Days */
             days: components["schemas"]["DayOut"][];
             item: components["schemas"]["ItemInfo"];
+            stats: components["schemas"]["PriceStatsOut"] | null;
+        };
+        /**
+         * PriceStatsOut
+         * @description An item's pooled statistics over the last 7 days (filled hourly; None until then or without data).
+         */
+        PriceStatsOut: {
+            /** Avail 7D */
+            avail_7d: number | null;
+            /** Median 7D */
+            median_7d: number | null;
+            /** Scans 7D */
+            scans_7d: number | null;
         };
         /** PricesOut */
         PricesOut: {
@@ -801,6 +858,10 @@ export interface components {
             gated: boolean;
             /** Items */
             items: components["schemas"]["ItemInfo"][];
+            /** Stats */
+            stats: {
+                [key: string]: components["schemas"]["PriceStatsOut"];
+            };
             /** Total */
             total: number;
         };
@@ -884,6 +945,8 @@ export interface components {
             key: string;
             /** Moved */
             moved: number;
+            /** Quarantined */
+            quarantined: boolean;
             /** Realm */
             realm: string;
         };
@@ -947,6 +1010,8 @@ export interface components {
             last_auctionator_import: string | null;
             /** Last Auctionator Sync */
             last_auctionator_sync: string | null;
+            /** Price Version */
+            price_version: number | null;
             /** Prices */
             prices: number;
             /** Recipes */
@@ -1285,6 +1350,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConfigOut"];
+                };
+            };
+        };
+    };
+    get_coverage_api_coverage_get: {
+        parameters: {
+            query: {
+                /** @description which game's data: tbc or forever */
+                game_version: "tbc" | "forever";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CoverageOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

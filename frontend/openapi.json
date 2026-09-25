@@ -254,6 +254,62 @@
         "title": "ConfigOut",
         "type": "object"
       },
+      "CoverageOut": {
+        "description": "How well one auction house is scanned, so uploaders see where scans are needed.",
+        "properties": {
+          "auction_house_id": {
+            "title": "Auction House Id",
+            "type": "integer"
+          },
+          "faction": {
+            "title": "Faction",
+            "type": "string"
+          },
+          "last_scan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scan"
+          },
+          "last_scan_items": {
+            "title": "Last Scan Items",
+            "type": "integer"
+          },
+          "prices": {
+            "title": "Prices",
+            "type": "integer"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          },
+          "scans_7d": {
+            "title": "Scans 7D",
+            "type": "integer"
+          },
+          "uploaders_7d": {
+            "title": "Uploaders 7D",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "auction_house_id",
+          "realm",
+          "faction",
+          "prices",
+          "last_scan",
+          "last_scan_items",
+          "scans_7d",
+          "uploaders_7d"
+        ],
+        "title": "CoverageOut",
+        "type": "object"
+      },
       "DayOut": {
         "properties": {
           "available": {
@@ -524,6 +580,17 @@
             ],
             "title": "Ah Price"
           },
+          "ah_sell_price": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ah Sell Price"
+          },
           "bonding": {
             "title": "Bonding",
             "type": "integer"
@@ -641,6 +708,7 @@
           "sell_price",
           "icon",
           "ah_price",
+          "ah_sell_price",
           "vendor_price"
         ],
         "title": "ItemInfo",
@@ -909,13 +977,69 @@
           },
           "item": {
             "$ref": "#/components/schemas/ItemInfo"
+          },
+          "stats": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceStatsOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
           "item",
+          "stats",
           "days"
         ],
         "title": "PriceHistoryOut",
+        "type": "object"
+      },
+      "PriceStatsOut": {
+        "description": "An item's pooled statistics over the last 7 days (filled hourly; None until then or without data).",
+        "properties": {
+          "avail_7d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avail 7D"
+          },
+          "median_7d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median 7D"
+          },
+          "scans_7d": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scans 7D"
+          }
+        },
+        "required": [
+          "median_7d",
+          "avail_7d",
+          "scans_7d"
+        ],
+        "title": "PriceStatsOut",
         "type": "object"
       },
       "PricesOut": {
@@ -931,6 +1055,13 @@
             "title": "Items",
             "type": "array"
           },
+          "stats": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/PriceStatsOut"
+            },
+            "title": "Stats",
+            "type": "object"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -938,6 +1069,7 @@
         },
         "required": [
           "items",
+          "stats",
           "total",
           "gated"
         ],
@@ -1153,6 +1285,10 @@
             "title": "Moved",
             "type": "integer"
           },
+          "quarantined": {
+            "title": "Quarantined",
+            "type": "boolean"
+          },
           "realm": {
             "title": "Realm",
             "type": "string"
@@ -1164,7 +1300,8 @@
           "realm",
           "faction",
           "items",
-          "moved"
+          "moved",
+          "quarantined"
         ],
         "title": "RealmPricesOut",
         "type": "object"
@@ -1369,6 +1506,17 @@
             ],
             "title": "Last Auctionator Sync"
           },
+          "price_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Version"
+          },
           "prices": {
             "title": "Prices",
             "type": "integer"
@@ -1411,6 +1559,7 @@
           "selection",
           "auction_house_id",
           "data_version",
+          "price_version",
           "warnings"
         ],
         "title": "Status",
@@ -2036,6 +2185,61 @@
           }
         },
         "summary": "Get Config"
+      }
+    },
+    "/api/coverage": {
+      "get": {
+        "description": "Each named auction house's scans: where uploads are needed. Open to every tier.",
+        "operationId": "get_coverage_api_coverage_get",
+        "parameters": [
+          {
+            "description": "which game's data: tbc or forever",
+            "in": "query",
+            "name": "game_version",
+            "required": true,
+            "schema": {
+              "description": "which game's data: tbc or forever",
+              "enum": [
+                "tbc",
+                "forever"
+              ],
+              "title": "Game Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CoverageOut"
+                  },
+                  "title": "Response Get Coverage Api Coverage Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Coverage"
       }
     },
     "/api/evaluate": {

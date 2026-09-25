@@ -12,6 +12,7 @@ from altarmy_profit import (
     auth,
     db,
     ingest,
+    merge,
     prices,
     ratelimit,
     schema,
@@ -22,6 +23,7 @@ from altarmy_profit import (
 )
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.api import create_app
+from altarmy_profit.auctionator import DayStats, ItemPrice
 from altarmy_profit.versions import GameVersion
 
 from .conftest import FOREVER, ME, SV_DIR, set_prices
@@ -202,6 +204,7 @@ def test_rank_sends_reagents_and_item_details(client: TestClient, priced: Connec
         "sell_price": 500,
         "icon": "inv_chest_cloth_39",
         "ah_price": None,
+        "ah_sell_price": None,
         "vendor_price": None,
     }
 
@@ -609,6 +612,89 @@ def test_linked_users_rank_their_own_characters(hosted: TestClient, priced: Conn
     assert hosted.get("/api/rank", headers=LINKED).json()["total"] == 1
     hosted.put("/api/ah-blocked/3", headers=LINKED)
     assert store.load_ah_blocked(priced, ME, FOREVER) == []
+
+
+def scanned_robe(conn: Connection, price: int, median_7d: int) -> int:
+    """An Auctionator scan pricing the robe at `price` on the tailor's auction house, whose 7-day median
+    (as the merge would fill it) is `median_7d`. Returns the auction house."""
+    ah = prices.auction_house(conn, FOREVER, "Classic Beta PvE", "")
+    now = db.utcnow()
+    prices.record_snapshot(conn, ah, "auctionator", now, [prices.Observation(3, price, now)])
+    pc = schema.price_current
+    conn.execute(pc.update().where(pc.c.item_id == 3).values(median_7d=median_7d, avail_7d=2, scans_7d=4))
+    return ah
+
+
+def test_rank_sells_at_the_lower_of_now_and_the_seven_day_median(
+    client: TestClient, priced: Connection
+) -> None:
+    scanned_robe(priced, 3_330_000, 1000)  # a lone overpriced listing
+    body = client.get("/api/rank").json()
+    (r,) = body["results"]
+    assert (r["best_exit"], r["revenue"]) == ("ah", 950)
+    robe = body["items"]["3"]
+    assert (robe["ah_price"], robe["ah_sell_price"]) == (3_330_000, 1000)
+
+
+def test_rank_pages_through_one_search(
+    client: TestClient, priced: Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[int] = []
+    search = service.search
+
+    def counted(*args: Any, **kwargs: Any) -> Any:
+        calls.append(1)
+        return search(*args, **kwargs)
+
+    monkeypatch.setattr(service, "search", counted)
+    assert client.get("/api/rank", params={"top": 1}).json()["total"] == 1
+    assert client.get("/api/rank", params={"top": 2}).json()["total"] == 1
+    assert len(calls) == 1  # "Show more" reuses the ranking
+    client.get("/api/rank", params={"top": 2, "include_unlearned": True})
+    assert len(calls) == 2  # other parameters rank again
+    client.post("/api/reload")  # a rebuilt market ranks again
+    client.get("/api/rank", params={"top": 1})
+    assert len(calls) == 3
+
+
+def test_status_reports_the_price_version(client: TestClient, priced: Connection) -> None:
+    assert client.get("/api/status").json()["price_version"] == 0
+    ah = scanned_robe(priced, 1200, 1000)
+    prices.record_daily(priced, ah, {3: _item_price(1200)})
+    merge.merge(priced, FOREVER)
+    assert client.get("/api/status").json()["price_version"] == 1
+
+
+def _item_price(price: int) -> ItemPrice:
+    return ItemPrice(price, {db.utcnow().date(): DayStats(price, price, 1)})
+
+
+def test_prices_list_seven_day_statistics(client: TestClient, priced: Connection) -> None:
+    ah = scanned_robe(priced, 3_330_000, 1000)
+    body = client.get("/api/prices", params={"auction_house_id": ah}).json()
+    assert body["stats"]["3"] == {"median_7d": 1000, "avail_7d": 2, "scans_7d": 4}
+    assert body["stats"]["1"] == {"median_7d": None, "avail_7d": None, "scans_7d": None}
+    history = client.get("/api/prices/3", params={"auction_house_id": ah}).json()
+    assert history["stats"] == {"median_7d": 1000, "avail_7d": 2, "scans_7d": 4}
+
+
+def test_coverage_lists_each_realms_scans(hosted: TestClient, conn: Connection) -> None:
+    assert upload(
+        hosted, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), FREE
+    ).is_success
+    prices.unnamed_auction_house(conn, FOREVER)  # never listed
+    tbc = prices.auction_house(conn, "tbc", "Dreamscythe", "Horde")
+    (row,) = hosted.get("/api/coverage", headers=FREE).json()
+    assert (row["realm"], row["faction"], row["prices"], row["last_scan_items"]) == (
+        "ClassicBetaPvE",
+        "",
+        1,
+        1,
+    )
+    assert (row["scans_7d"], row["uploaders_7d"]) == (1, 1)
+    assert row["last_scan"] is not None
+    (dream,) = hosted.get("/api/coverage", params={"game_version": "tbc"}, headers=FREE).json()
+    assert (dream["auction_house_id"], dream["last_scan"], dream["scans_7d"]) == (tbc, None, 0)
 
 
 def gated(conn: Connection) -> int:

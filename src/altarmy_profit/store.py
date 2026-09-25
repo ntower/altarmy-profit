@@ -38,21 +38,20 @@ class ItemDetails:
     icon: str | None
 
 
-MarketStamp = tuple[str | None, int | None]
+MarketStamp = tuple[str | None, int | None, int | None]
 
 
 def market_stamp(conn: Connection, game_version: str, auction_house_id: int | None) -> MarketStamp:
-    """What a cached market was built from: the version's game data build and the auction house's newest
-    snapshot (every price write adds one). If either moved, the market is stale."""
+    """What a cached market was built from: the version's game data build, the auction house's newest
+    snapshot (every price write adds one) and its price version (every merge that changed something bumps
+    it). If any moved, the market is stale."""
+    if auction_house_id is None:
+        return db.get_build(conn, game_version), None, None
     snap = schema.price_snapshots
-    newest = (
-        None
-        if auction_house_id is None
-        else conn.execute(
-            select(func.max(snap.c.id)).where(snap.c.auction_house_id == auction_house_id)
-        ).scalar_one_or_none()
-    )
-    return db.get_build(conn, game_version), newest
+    newest = conn.execute(
+        select(func.max(snap.c.id)).where(snap.c.auction_house_id == auction_house_id)
+    ).scalar_one_or_none()
+    return db.get_build(conn, game_version), newest, prices.price_version(conn, auction_house_id)
 
 
 def load_market(
@@ -123,8 +122,8 @@ def load_market(
         )
         for r in conn.execute(select(d).where(d.c.game_version == game_version).order_by(d.c.id))
     ]
-    current = prices.load_current(conn, auction_house_id)
-    return Market(items, recipes, current, de, ah_cut, mail_postage=mail_postage)
+    buy, sell = prices.load_buy_and_sell(conn, auction_house_id)
+    return Market(items, recipes, buy, de, ah_cut, mail_postage=mail_postage, sell_prices=sell)
 
 
 def load_item_details(conn: Connection, game_version: str, ids: Iterable[int]) -> dict[int, ItemDetails]:

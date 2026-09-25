@@ -3,7 +3,10 @@
 Every source (Auctionator's SavedVariables, CSV, a manual price) records a snapshot for one auction house
 (`record_snapshot`). A snapshot writes observations only for items it tells something new about, and those
 move `price_current`, which the engine reads: the newest price per auction house and item. Auctionator's
-per-day history also fills `price_daily`. Observations are pruned after `KEEP_DAYS`; daily rows are kept.
+per-day history also fills `price_daily`, pooled across uploaders. Observations are pruned after
+`KEEP_DAYS`; daily rows are kept. `merge.py` fills the 7-day columns, which set the sell price
+(`load_buy_and_sell`) and the baseline an uploaded scan is screened against (`screen`): one whose prices
+are mostly far off it is quarantined and changes nothing.
 """
 
 from __future__ import annotations
@@ -21,6 +24,14 @@ from .auctionator import ItemPrice
 
 KEEP_DAYS = 90  # observations older than this are pruned (price_daily is kept)
 AUCTIONATOR = "auctionator"
+HAND_SET = ("manual", "csv")  # sources whose price is used as it is, never capped by the 7-day median
+
+# Screening an uploaded scan against the 7-day medians (normal scans have at most ~5% of items this far off)
+WILD_RATIO = 4.0  # a price more than this many times off its median, either way, is wild
+MIN_COMPARED = 20  # fewer comparable items than this: not enough to judge
+MIN_BASELINE_DAYS = 3  # an item's median counts as a baseline once it has this many days
+BASE_WILD_SHARE = 0.1  # quarantine above this share of wild prices, plus TRUST_WILD_SHARE * trust
+TRUST_WILD_SHARE = 0.2
 
 
 @dataclass(frozen=True)
@@ -133,6 +144,78 @@ def auction_houses(conn: Connection, game_version: str) -> list[AuctionHouseInfo
     ]
 
 
+def price_version(conn: Connection, auction_house_id: int | None) -> int | None:
+    """How many merges changed the auction house's 7-day columns (None: no such auction house)."""
+    if auction_house_id is None:
+        return None
+    t = schema.auction_houses
+    found = conn.execute(select(t.c.price_version).where(t.c.id == auction_house_id)).scalar_one_or_none()
+    return None if found is None else int(found)
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """How well an auction house is scanned."""
+
+    auction_house_id: int
+    realm: str
+    faction: str  # "" if both factions share it
+    prices: int  # items with a current price
+    last_scan: datetime | None  # the newest accepted scan
+    last_scan_items: int  # items in it
+    scans_7d: int  # accepted scans in the last 7 days
+    uploaders_7d: int  # distinct users who sent them
+
+
+def coverage(conn: Connection, game_version: str, now: datetime | None = None) -> list[Coverage]:
+    """Every named auction house of the version, by realm then faction."""
+    since = db.utc(now or db.utcnow()) - timedelta(days=7)
+    t, pc, snap = schema.auction_houses, schema.price_current, schema.price_snapshots
+    accepted = snap.c.status == "accepted"
+    counts: dict[int, int] = dict(
+        conn.execute(
+            select(pc.c.auction_house_id, func.count())
+            .join(t, t.c.id == pc.c.auction_house_id)
+            .where(t.c.game_version == game_version)
+            .group_by(pc.c.auction_house_id)
+        ).all()
+    )
+    recent = {
+        r[0]: (int(r[1]), int(r[2]))
+        for r in conn.execute(
+            select(snap.c.auction_house_id, func.count(), func.count(snap.c.uploader_uid.distinct()))
+            .where(accepted, snap.c.scanned_at >= since)
+            .group_by(snap.c.auction_house_id)
+        )
+    }
+    newest = (
+        select(snap.c.auction_house_id, func.max(snap.c.id).label("id"))
+        .where(accepted)
+        .group_by(snap.c.auction_house_id)
+        .subquery()
+    )
+    last = {
+        r.auction_house_id: (db.utc(r.scanned_at), int(r.item_count))
+        for r in conn.execute(
+            select(snap.c.auction_house_id, snap.c.scanned_at, snap.c.item_count).join(
+                newest, newest.c.id == snap.c.id
+            )
+        )
+    }
+    out = []
+    for r in conn.execute(
+        select(t.c.id, t.c.realm, t.c.faction)
+        .where(t.c.game_version == game_version, t.c.realm != "")
+        .order_by(t.c.realm, t.c.faction)
+    ):
+        scan, items = last.get(r.id, (None, 0))
+        scans, uploaders = recent.get(r.id, (0, 0))
+        out.append(
+            Coverage(r.id, r.realm, r.faction, int(counts.get(r.id, 0)), scan, items, scans, uploaders)
+        )
+    return out
+
+
 def game_version_of(conn: Connection, auction_house_id: int) -> str | None:
     t = schema.auction_houses
     found = conn.execute(select(t.c.game_version).where(t.c.id == auction_house_id)).scalar_one_or_none()
@@ -145,6 +228,71 @@ def _add_alias(conn: Connection, auction_house_id: int, kind: str, value: str) -
 
 
 # --- recording -------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Recorded:
+    moved: int  # items whose current price moved
+    quarantined: bool = False  # the scan was held back: it changed nothing
+    screened: bool = False  # it was compared with enough of the baseline to judge the uploader by
+
+
+def screen(
+    observations: Sequence[Observation], baseline: Mapping[int, int], scanned_at: datetime, trust: float
+) -> bool | None:
+    """Whether to quarantine a scan: too many of its prices seen on the scan day are more than WILD_RATIO
+    off the item's 7-day median (`baseline`). The share allowed shrinks with the uploader's `trust`
+    (0..1). None when fewer than MIN_COMPARED items can be compared."""
+    scan_day = db.utc(scanned_at).date()
+    ratios = [
+        o.min_buyout / baseline[o.item_id]
+        for o in observations
+        if baseline.get(o.item_id, 0) > 0 and db.utc(o.seen_at).date() == scan_day
+    ]
+    if len(ratios) < MIN_COMPARED:
+        return None
+    wild = sum(1 for r in ratios if r > WILD_RATIO or r < 1 / WILD_RATIO)
+    return wild / len(ratios) > BASE_WILD_SHARE + TRUST_WILD_SHARE * max(0.0, min(1.0, trust))
+
+
+def baseline(conn: Connection, auction_house_id: int) -> dict[int, int]:
+    """{item_id: 7-day median} for items with at least MIN_BASELINE_DAYS days of it."""
+    pc = schema.price_current
+    rows = conn.execute(
+        select(pc.c.item_id, pc.c.median_7d).where(
+            pc.c.auction_house_id == auction_house_id,
+            pc.c.median_7d.is_not(None),
+            pc.c.scans_7d >= MIN_BASELINE_DAYS,
+        )
+    )
+    return {r.item_id: int(r.median_7d) for r in rows}
+
+
+def _insert_snapshot(
+    conn: Connection,
+    auction_house_id: int,
+    source: str,
+    scanned_at: datetime,
+    item_count: int,
+    received_at: datetime | None,
+    uploader_uid: str | None,
+    status: str,
+) -> int:
+    snap = schema.price_snapshots
+    snapshot_id: int = conn.execute(
+        snap.insert()
+        .values(
+            auction_house_id=auction_house_id,
+            source=source,
+            uploader_uid=uploader_uid,
+            scanned_at=db.utc(scanned_at),
+            received_at=db.utc(received_at or db.utcnow()),
+            item_count=item_count,
+            status=status,
+        )
+        .returning(snap.c.id)
+    ).scalar_one()
+    return snapshot_id
+
+
 def record_snapshot(
     conn: Connection,
     auction_house_id: int,
@@ -159,20 +307,9 @@ def record_snapshot(
 
     An observation is news when the auction house has no price for the item, when it was seen on a later
     day, or when it was seen no earlier and its price differs. Re-sending the same scan writes nothing."""
-    snap = schema.price_snapshots
-    snapshot_id: int = conn.execute(
-        snap.insert()
-        .values(
-            auction_house_id=auction_house_id,
-            source=source,
-            uploader_uid=uploader_uid,
-            scanned_at=db.utc(scanned_at),
-            received_at=db.utc(received_at or db.utcnow()),
-            item_count=len(observations),
-            status="accepted",
-        )
-        .returning(snap.c.id)
-    ).scalar_one()
+    snapshot_id = _insert_snapshot(
+        conn, auction_house_id, source, scanned_at, len(observations), received_at, uploader_uid, "accepted"
+    )
     current = _current(conn, auction_house_id)
     news = [o for o in observations if _is_news(o, current.get(o.item_id))]
     if not news:
@@ -240,24 +377,32 @@ def auctionator_observations(item_prices: Mapping[int, ItemPrice], scanned_at: d
 
 def record_daily(conn: Connection, auction_house_id: int, item_prices: Mapping[int, ItemPrice]) -> int:
     """Upsert Auctionator's per-day history into `price_daily`, from the newest day already stored on
-    (earlier days no longer change). Returns the rows written."""
+    (earlier days no longer change). A day several uploaders saw pools them: the lowest low, the highest
+    high, the most available. Returns the rows written."""
     pd = schema.price_daily
     newest = conn.execute(
         select(func.max(pd.c.day)).where(pd.c.auction_house_id == auction_house_id)
     ).scalar_one_or_none()
-    rows = [
-        {
-            "auction_house_id": auction_house_id,
-            "item_id": item_id,
-            "day": day,
-            "low": s.low,
-            "high": s.high,
-            "available": s.available,
-        }
-        for item_id, p in item_prices.items()
-        for day, s in p.days.items()
-        if newest is None or day >= newest
-    ]
+    stored: dict[tuple[int, date], tuple[int, int, int | None]] = {}
+    if newest is not None:
+        for r in conn.execute(
+            select(pd.c.item_id, pd.c.day, pd.c.low, pd.c.high, pd.c.available).where(
+                pd.c.auction_house_id == auction_house_id, pd.c.day >= newest
+            )
+        ):
+            stored[(r.item_id, r.day)] = (r.low, r.high, r.available)
+    rows = []
+    for item_id, p in item_prices.items():
+        for day, s in p.days.items():
+            if newest is not None and day < newest:
+                continue
+            low, high, available = s.low, s.high, s.available
+            old = stored.get((item_id, day))
+            if old is not None:
+                low, high = min(low, old[0]), max(high, old[1])
+                available = max((a for a in (available, old[2]) if a is not None), default=None)
+            row = {"low": low, "high": high, "available": available}
+            rows.append({"auction_house_id": auction_house_id, "item_id": item_id, "day": day, **row})
     db.upsert(conn, pd, rows, ["auction_house_id", "item_id", "day"], ["low", "high", "available"])
     return len(rows)
 
@@ -268,14 +413,25 @@ def record_auctionator(
     item_prices: Mapping[int, ItemPrice],
     scanned_at: datetime,
     uploader_uid: str | None = None,
-) -> int:
-    """One realm of an Auctionator scan: a snapshot plus its daily history. Returns the items moved."""
+    trust: float | None = None,
+) -> Recorded:
+    """One realm of an Auctionator scan: a snapshot plus its daily history. With the uploader's `trust`,
+    the scan is screened first (see `screen`); a quarantined one is kept as a snapshot row only."""
     observations = auctionator_observations(item_prices, scanned_at)
+    verdict = None
+    if trust is not None:
+        verdict = screen(observations, baseline(conn, auction_house_id), scanned_at, trust)
+    if verdict:
+        count = len(observations)
+        _insert_snapshot(
+            conn, auction_house_id, AUCTIONATOR, scanned_at, count, None, uploader_uid, "quarantined"
+        )
+        return Recorded(0, quarantined=True, screened=True)
     moved = record_snapshot(
         conn, auction_house_id, AUCTIONATOR, scanned_at, observations, uploader_uid=uploader_uid
     )
     record_daily(conn, auction_house_id, item_prices)
-    return moved
+    return Recorded(moved, screened=verdict is not None)
 
 
 def prune(conn: Connection, now: datetime | None = None, keep_days: int = KEEP_DAYS) -> None:
@@ -296,6 +452,51 @@ def load_current(conn: Connection, auction_house_id: int | None) -> dict[int, in
     pc = schema.price_current
     rows = conn.execute(select(pc.c.item_id, pc.c.price).where(pc.c.auction_house_id == auction_house_id))
     return {r.item_id: r.price for r in rows}
+
+
+def load_buy_and_sell(
+    conn: Connection, auction_house_id: int | None
+) -> tuple[dict[int, int], dict[int, int]]:
+    """({item_id: price}, {item_id: sell price}) for the auction house; empty for None. Reagents cost the
+    current price; a craft sells at the lower of it and the 7-day median, so a lone overpriced listing
+    doesn't count as the going rate. Prices set by hand (manual, CSV) are used as they are."""
+    if auction_house_id is None:
+        return {}, {}
+    pc, snap = schema.price_current, schema.price_snapshots
+    rows = conn.execute(
+        select(pc.c.item_id, pc.c.price, pc.c.median_7d, snap.c.source)
+        .join(snap, snap.c.id == pc.c.snapshot_id)
+        .where(pc.c.auction_house_id == auction_house_id)
+    )
+    buy: dict[int, int] = {}
+    sell: dict[int, int] = {}
+    for r in rows:
+        buy[r.item_id] = r.price
+        capped = r.median_7d is not None and r.source not in HAND_SET
+        sell[r.item_id] = min(r.price, r.median_7d) if capped else r.price
+    return buy, sell
+
+
+@dataclass(frozen=True)
+class PriceStats:
+    median_7d: int | None  # the median of the item's daily medians over the last 7 days
+    avail_7d: int | None  # the median of its daily availability
+    scans_7d: int | None  # days with data in the last 7
+
+
+def stats(conn: Connection, auction_house_id: int, item_ids: Iterable[int]) -> dict[int, PriceStats]:
+    """The merge's 7-day statistics of the given items with a current price."""
+    wanted = sorted(set(item_ids))
+    pc = schema.price_current
+    out: dict[int, PriceStats] = {}
+    for start in range(0, len(wanted), 500):
+        for r in conn.execute(
+            select(pc.c.item_id, pc.c.median_7d, pc.c.avail_7d, pc.c.scans_7d).where(
+                pc.c.auction_house_id == auction_house_id, pc.c.item_id.in_(wanted[start : start + 500])
+            )
+        ):
+            out[r.item_id] = PriceStats(r.median_7d, r.avail_7d, r.scans_7d)
+    return out
 
 
 def count_current(conn: Connection, auction_house_id: int | None) -> int:

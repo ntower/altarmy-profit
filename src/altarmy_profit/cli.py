@@ -1,5 +1,5 @@
 """Command line interface: ingest, import-prices, import-auctionator, import-altarmy, set-price, rank, ui,
-watch, and the hosted jobs' migrate and prune.
+watch, and the hosted jobs' migrate, prune and merge.
 
 `--game-version` (tbc | forever) picks the game's data, files and wago.tools product. Every version shares
 one database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
@@ -14,7 +14,7 @@ import threading
 import webbrowser
 from pathlib import Path
 
-from . import altarmy, db, ingest, legacy, prices, service, store, versions, watch
+from . import altarmy, db, ingest, legacy, merge, prices, service, store, versions, watch
 from .db import LOCAL_UID
 from .engine import Filters, format_money
 from .store import load_market
@@ -66,6 +66,16 @@ def cmd_prune(args: argparse.Namespace) -> None:
     with args.database.begin() as conn:
         prices.prune(conn)
     print(f"Pruned price observations older than {prices.KEEP_DAYS} days.")
+
+
+def cmd_merge(args: argparse.Namespace) -> None:
+    with args.database.begin() as conn:
+        changed = merge.merge(conn)
+        observations = merge.observation_count(conn)
+    print(
+        f"Merged {len(changed)} auction houses of every game version ({sum(changed.values())} changed); "
+        f"{observations} price observations stored."
+    )
 
 
 def cmd_import_prices(args: argparse.Namespace) -> None:
@@ -218,6 +228,12 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("prune", help=f"drop price observations older than {prices.KEEP_DAYS} days")
     s.set_defaults(fn=cmd_prune)
+
+    s = sub.add_parser(
+        "merge",
+        help="recompute daily medians and the 7-day price statistics (every game version)",
+    )
+    s.set_defaults(fn=cmd_merge)
 
     s = sub.add_parser("import-prices", help="import prices from CSV (item_id|name, price in copper)")
     s.add_argument("file")

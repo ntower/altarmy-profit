@@ -258,16 +258,20 @@ class Market:
         no_ah: frozenset[int] = frozenset(),
         include_trivial: bool = True,
         mail_postage: int = MAIL_POSTAGE,
+        sell_prices: dict[int, int] | None = None,
     ):
         """`crafters` are the characters who craft and disenchant, mailing items between them; without
         them one unnamed character does everything. `include_unlearned` lets anyone with a recipe's
         profession craft it when nobody has learned it. Crafts are only sold via `exits`, and items in
         `no_ah` never on the AH (they may still be bought there). Without `include_trivial` the final craft
         is only done by a character it can give a skillup (see `can_skill_up`); sub-crafts may be grey.
-        `mail_postage` is the copper charged per mail attachment on this game version."""
+        `mail_postage` is the copper charged per mail attachment on this game version. Reagents are bought
+        at `prices`; crafts and disenchant materials are sold at `sell_prices` (default: `prices`), which
+        may be more conservative than the newest listing."""
         self.items = items
         self.recipes = recipes
         self.prices = prices
+        self.sell_prices = prices if sell_prices is None else sell_prices
         self.disenchant = disenchant or []
         self.ah_cut = ah_cut
         self.crafters = crafters
@@ -295,7 +299,7 @@ class Market:
 
     def _expected(self, d: DisenchantRow) -> float | None:
         """Expected net AH copper from one disenchant row; None if its result is unpriced."""
-        price = self.prices.get(d.result_item_id)
+        price = self.sell_prices.get(d.result_item_id)
         return (
             None if price is None else d.chance * (d.min_count + d.max_count) / 2 * ah_net(price, self.ah_cut)
         )
@@ -330,8 +334,8 @@ class Market:
         out: list[Exit] = []
         if item.sell_price > 0:
             out.append(Exit("vendor", item.sell_price))
-        if item_id in self.prices and item_id not in self.no_ah:
-            out.append(Exit("ah", ah_net(self.prices[item_id], self.ah_cut)))
+        if item_id in self.sell_prices and item_id not in self.no_ah:
+            out.append(Exit("ah", ah_net(self.sell_prices[item_id], self.ah_cut)))
         de = self.disenchant_value(item)
         if de:
             out.append(Exit("disenchant", de, tuple(self.disenchant_materials(item))))

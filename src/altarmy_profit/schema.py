@@ -285,6 +285,8 @@ auction_houses = Table(
     Column("realm", String(64), nullable=False),  # "" for the unnamed auction house (no realm selected)
     Column("faction", String(16), nullable=False),
     Column("region", String(16)),  # informational: us, eu, test, ...
+    # bumped by each merge that changed price_current's 7-day columns, so cached markets notice
+    Column("price_version", Integer, nullable=False, default=0, server_default="0"),
     UniqueConstraint("game_version", "realm", "faction"),
 )
 

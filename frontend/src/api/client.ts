@@ -21,6 +21,8 @@ export type UpdateResult = components['schemas']['UpdateResult']
 /** Items never sold on the AH, with tooltip details. */
 export type AhBlocked = components['schemas']['AhBlocked']
 export type AuctionHouse = components['schemas']['AuctionHouseOut']
+export type PriceStats = components['schemas']['PriceStatsOut']
+export type Coverage = components['schemas']['CoverageOut']
 /** Items priced on an auction house; `gated` if the free tier's level limit left some out. */
 export type Prices = components['schemas']['PricesOut']
 export type PriceHistory = components['schemas']['PriceHistoryOut']

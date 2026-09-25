@@ -17,6 +17,7 @@ export const status = (over: Partial<Status> = {}): Status => ({
   selection: { realm: 'Classic Beta PvE', faction: 'Horde' },
   auction_house_id: 1,
   data_version: 1,
+  price_version: 0,
   warnings: [],
   ...over,
 })

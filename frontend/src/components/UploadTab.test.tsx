@@ -80,6 +80,45 @@ describe('UploadTab', () => {
     expect(await screen.findByText('no AltArmyTBC_Data in file')).toBeInTheDocument()
   })
 
+  it('says which realms of a scan were not used', async () => {
+    const scan: UploadResult = {
+      kind: 'auctionator',
+      detail: '',
+      characters: 0,
+      groups: [],
+      realms: [
+        { key: 'ClassicBetaPvE', auction_house_id: 1, realm: 'Classic Beta PvE', faction: '', items: 30, moved: 0, quarantined: true },
+        { key: 'Dreamscythe Horde', auction_house_id: 2, realm: 'Dreamscythe', faction: 'Horde', items: 5, moved: 2, quarantined: false },
+      ],
+    }
+    mockApi({ '/api/uploads': (url: URL) => (url.search.includes('game_version') ? scan : []) })
+    renderWithProviders(<UploadTab />, LINKED)
+    const inputs = document.querySelectorAll<HTMLInputElement>('input[type="file"]')
+    await userEvent.upload(inputs[1]!, new File(['x'], 'Auctionator.lua'))
+    await userEvent.click(screen.getAllByRole('button', { name: 'Upload' })[1]!)
+    expect(await screen.findByText(/some prices were not used/)).toBeInTheDocument()
+    expect(screen.getByText('not used')).toBeInTheDocument()
+    expect(screen.getByText(/Classic Beta PvE: 30 prices$/)).toBeInTheDocument()
+    expect(screen.getByText(/Dreamscythe \(Horde\): 5 prices, 2 changed/)).toBeInTheDocument()
+  })
+
+  it('lists the stalest auction houses first', async () => {
+    const row = { faction: '', prices: 10, last_scan_items: 10, scans_7d: 1, uploaders_7d: 1 }
+    mockApi({
+      '/api/uploads': [],
+      '/api/coverage': [
+        { ...row, auction_house_id: 1, realm: 'Fresh', last_scan: '2099-01-01 00:00:00' },
+        { ...row, auction_house_id: 2, realm: 'Never', last_scan: null, scans_7d: 0, uploaders_7d: 0 },
+        { ...row, auction_house_id: 3, realm: 'Old', faction: 'Horde', last_scan: '2020-01-01 00:00:00' },
+      ],
+    })
+    renderWithProviders(<UploadTab />, GUEST)
+    const table = await screen.findByRole('table', { name: 'Coverage' })
+    const realms = Array.from(table.querySelectorAll('tbody tr')).map((tr) => tr.querySelector('td')?.textContent)
+    expect(realms).toEqual(['Never', 'Old (Horde)', 'Fresh'])
+    expect(table).toHaveTextContent('never')
+  })
+
   it('tells guests their characters wait for a linked account', () => {
     mockApi({ '/api/uploads': [] })
     renderWithProviders(<UploadTab />, GUEST)

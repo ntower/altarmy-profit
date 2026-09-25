@@ -36,6 +36,27 @@ def ensure_user(conn: Connection, user: User) -> None:
         conn.execute(t.update().where(t.c.uid == user.uid).values(**values))
 
 
+TRUST_GAIN = 0.1  # per screened scan that was accepted, up to 1
+TRUST_LOSS = 0.5  # a quarantined scan multiplies the trust by this
+
+
+def trust(conn: Connection, user_uid: str) -> float:
+    """How far the user's scans are trusted, 0..1 (1 for unknown users): `prices.screen` allows fewer
+    wild prices the lower it is."""
+    t = schema.users
+    found = conn.execute(select(t.c.trust_score).where(t.c.uid == user_uid)).scalar_one_or_none()
+    return 1.0 if found is None else float(found)
+
+
+def adjust_trust(conn: Connection, user_uid: str, *, quarantined: bool) -> float:
+    """Feed a screened scan back into the user's trust: halved by a quarantine, else raised a little."""
+    now = trust(conn, user_uid)
+    new = now * TRUST_LOSS if quarantined else min(1.0, now + TRUST_GAIN)
+    t = schema.users
+    conn.execute(t.update().where(t.c.uid == user_uid).values(trust_score=new))
+    return new
+
+
 def delete_user(conn: Connection, user_uid: str) -> None:
     """Delete the user and everything they own (characters, settings, AH blocks, uploads, API keys cascade).
     Their price snapshots stay in the pool, no longer attributed to them."""

@@ -200,7 +200,7 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
   moved.
 - Limits: 32 MB decompressed per file, 60 uploads per user per hour (rejected ones count). The parsers
   cap nesting depth and turn malformed input into `ValueError` (400); a seeded fuzz test holds them to it.
-- Uploads are accepted as they come. Quarantine and trust are Phase 6.
+- Uploads are accepted as they come. Quarantine and trust are Phase 6 (done, see section 8).
 3. **Tray app** (later). A PyInstaller build of the watcher with auto-start.
 4. **Alt Army paste export** (later). The addon shows a compressed string (LibDeflate + base64) of the
    characters; the site has a paste box. Live data, no `/reload`.
@@ -216,6 +216,40 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
 - The UI shows price freshness and scan counts, and a coverage page lists each realm's last scan and item
   count so users can see where uploads are needed.
 
+Phase 6 status (done, 2026-09-24). Revision `0004` adds `auction_houses.price_version`. Differences from
+the list above and from section 4:
+
+- **The merge** (`merge.py`, `altarmy-profit merge`) runs hourly as the `altarmy-merge` Cloud Run job
+  (Cloud Scheduler at :30) and after each local sync. There is no separate daily aggregation: the merge
+  recomputes the last 30 days each run. `price_daily.median` is the median of the day's Auctionator low
+  and high plus that UTC day's accepted scan prices, clamped to low..high (observations hold only news, so
+  a price seen in several scans counts once). `price_current.median_7d` is the median of the item's daily
+  medians over its **latest 7 days with data within 30 days**, not the last 7 calendar days: a single
+  player scans every few days, and a 7-day window then often held only the newest day, the outlier itself.
+  `avail_7d` is the median availability of those days; `scans_7d` counts them (days, not snapshots).
+- **Current price stays the newest minimum buyout**, and that is what reagents cost. The engine sells
+  (the AH exit, disenchant materials) at `min(price, median_7d)`; `manual` and `csv` prices are used as they
+  are. `Market` takes `sell_prices`; `ItemInfo` shows both. On the maintainer's TBC scan this dropped the
+  2.4g Runecloth Bag listed at 2,700g from first place; items with steady high prices (Argent Boots about
+  1,000g on every scan) stay.
+- **Pooling:** `price_daily` rows from several uploaders merge (lowest low, highest high, most available)
+  instead of the latest upload overwriting the day.
+- **Price version:** a merge that changed anything bumps `auction_houses.price_version`; it is part of
+  `store.market_stamp` (cached markets rebuild within `STAMP_TTL`) and of `/api/status`, whose
+  `price_version` the front end adds to its query keys. `data_version` stays per user.
+- **Quarantine and trust:** only uploads are screened. A realm's scan is quarantined when at least 20 of
+  its fresh prices have a baseline (`median_7d` over 3 or more days) and more than `0.1 + 0.2 * trust` of
+  them are over 4x off either way. Real TBC scans have at most ~5% that far off day to day. A quarantine
+  halves the uploader's `trust_score`; a screened scan that passes adds 0.1 (up to 1). The snapshot is
+  kept as a `quarantined` row only (nothing moves, the merge ignores it). The upload itself stays
+  `accepted`; its detail and the Upload tab say "not used: they differ widely from recent scans". There
+  is no review or release of quarantined scans.
+- **Coverage** is `GET /api/coverage` (every tier) and a card on the Upload tab, stalest first: last
+  accepted scan, its item count, prices, scans and uploaders in 7 days.
+- Known limits: an item scanned only long ago keeps its old price as the sell price (no median within 30
+  days), and a steady thin market (one listing at the same high price every day) is not an outlier to the
+  median. The Auctionator day vs UTC day mismatch from Phase 4 also applies to the daily medians.
+
 ## 9. Compute and performance
 
 - One `engine.Market` per (game_version, auction house), cached in process and keyed by the price version;
@@ -223,6 +257,10 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
 - Per-user rankings are computed on request behind `rank_cache`, keyed on uid, auction house, price version
   and the request parameters. Phase 0 adds `scripts/bench_rank.py`; the target is under two seconds for a
   realistic set of crafters.
+- Phase 6 (done): `rank_cache` and the precomputed ranking were not needed. The widest search is still
+  about 1.1 s (below). An in-process `service.RankCache` keeps the last 64 full rankings, keyed on user,
+  characters, parameters and AH blocks and valid only for the `Market` they came from, so "Show more" and
+  refetches don't re-rank. The `rank_cache` table was not created.
 - If that misses: precompute a per-auction-house "universal" ranking (one unnamed crafter) for cold starts
   and the free tier and personalize on demand; move long rankings to Cloud Tasks with a job id the client
   polls. Engine candidates: share the memo across crafters when nothing is mailed, and skip the crafter loop
@@ -261,6 +299,8 @@ and `Dockerfile` hold them. Differences from the list above:
 - `DELETE /api/me` deletes the user's rows (their snapshots stay, with `uploader_uid` cleared) and the
   Firebase user in one transaction; the privacy note in the footer offers it.
 - Hourly merge/aggregation, the Blizzard poll and `price_observations` partitions moved to Phases 6 and 7.
+- Phase 6 follow-up: the first CI deploy (after setting the repo variables) passed without IAM changes.
+  Two tests only failed on Linux CI (a Windows path, jsdom's `File` in Node's `FormData`) and were fixed.
 
 ## 11. Phases
 
@@ -281,8 +321,10 @@ Each phase ships on its own and local mode keeps working throughout.
    runs) and against `alt-army-prod` (anonymous and email sign-up, tokens verified by `firebase-admin`).
 5. **Deploy** (done). Cloud Run, Cloud SQL, Firebase Hosting, scheduled Cloud Run jobs, deploy from CI
    (Workload Identity Federation), staging, rate limits, account deletion, privacy note.
-6. **Pooling quality and performance.** Merge job, quarantine and trust, coverage page, rank cache and
-   precompute if the benchmark demands it; monthly partitions for `price_observations`.
+6. **Pooling quality and performance** (done). Merge job, sell at the 7-day median, quarantine and trust,
+   coverage, an in-process rank cache. Monthly partitions for `price_observations` stay deferred: the merge
+   job prints the row count; partition once it passes about 5 million or the daily prune takes over a
+   minute (a Postgres-only revision; the primary key then needs a date column).
 7. **More sources and uploaders.** Blizzard API poller, AHDB parser, tray app, Alt Army paste export.
 
 ## 12. Verification per phase
@@ -341,6 +383,9 @@ Still to check by hand:
   `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`, run `python scripts/probe_blizzard_api.py`, and record
   which namespace (if any) answers with auctions.
 - **Output counts.** TBC's data says the Major protection potions make 5 per craft; confirm one in game.
-- **Price outliers.** TBC rankings surface single overpriced listings (a 49s gem "selling" for 333g). That is
-  the snapshot-pricing limit the Phase 6 merge job and the price-history ideas in
-  [ROADMAP_IDEAS.md](ROADMAP_IDEAS.md) address.
+- **Price outliers** (addressed in Phase 6). TBC rankings surfaced single overpriced listings (a 49s gem
+  "selling" for 333g). Crafts now sell at the lower of the current price and the 7-day median; see section 8.
+
+Phase 6 benchmark (same machine and data as above, TBC, 19 characters): `load_market` 0.23 s; learned
+0.179 s (536 results), with unlearned 1.150 s (1,121). A repeat or "Show more" request hits the rank cache.
+A merge of that auction house (9,431 prices) takes about 1 s including the CLI's start.

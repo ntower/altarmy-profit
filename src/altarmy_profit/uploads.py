@@ -3,7 +3,9 @@ history. Functions taking a `Connection` never commit.
 
 An Alt Army file replaces the uploader's characters of that game version. An Auctionator file records a
 snapshot for every realm it has prices for, whoever uploads it, so auction houses pool everyone's scans
-(the newest `seen_at` wins, see `prices.record_snapshot`). The file itself is never stored.
+(the newest `seen_at` wins, see `prices.record_snapshot`). Each realm's scan is screened against its 7-day
+medians first: a quarantined one changes nothing and lowers the uploader's trust (`prices.screen`,
+`users.adjust_trust`). The file itself is never stored.
 """
 
 from __future__ import annotations
@@ -14,7 +16,7 @@ from datetime import datetime, timedelta
 
 from sqlalchemy import Connection, func, select
 
-from . import altarmy, auctionator, db, prices, schema, service, store
+from . import altarmy, auctionator, db, prices, schema, service, store, users
 
 MAX_BYTES = 32 * 2**20  # decompressed; the biggest real file (TBC Auctionator.lua) is about 5 MB
 RATE_LIMIT = 60  # uploads per user per hour
@@ -38,6 +40,7 @@ class RealmPrices:
     faction: str
     items: int  # items priced in the scan
     moved: int  # of them, items whose current price changed
+    quarantined: bool = False  # the scan was far off recent prices and not used
 
 
 @dataclass(frozen=True)
@@ -58,7 +61,12 @@ class Imported:
             return f"{self.characters} characters" + (f" on {where}" if where else "")
         if not self.realms:
             return "No realm in the file has prices."
-        return "; ".join(f"{r.key}: {r.items} prices, {r.moved} changed" for r in self.realms)
+        return "; ".join(
+            f"{r.key}: {r.items} prices not used: they differ widely from recent scans"
+            if r.quarantined
+            else f"{r.key}: {r.items} prices, {r.moved} changed"
+            for r in self.realms
+        )
 
 
 @dataclass(frozen=True)
@@ -133,9 +141,12 @@ def ingest_auctionator(
         if not item_prices:
             continue
         ah = _auction_house(conn, game_version, key, [(g.realm, g.faction) for g in groups])
-        moved = prices.record_auctionator(conn, ah, item_prices, scanned_at, uploader_uid=user_uid)
+        trust = users.trust(conn, user_uid)
+        got = prices.record_auctionator(conn, ah, item_prices, scanned_at, uploader_uid=user_uid, trust=trust)
+        if got.screened:
+            users.adjust_trust(conn, user_uid, quarantined=got.quarantined)
         realm, faction = _name(conn, ah)
-        recorded.append(RealmPrices(key, ah, realm, faction, len(item_prices), moved))
+        recorded.append(RealmPrices(key, ah, realm, faction, len(item_prices), got.moved, got.quarantined))
     if recorded:
         prices.prune(conn)
         service.bump_data_version(conn, user_uid, game_version)

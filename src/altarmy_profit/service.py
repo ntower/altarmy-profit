@@ -9,14 +9,15 @@ from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections import OrderedDict
+from collections.abc import Callable, Hashable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy import Connection
 
-from . import altarmy, auctionator, db, ingest, prices, store, users
+from . import altarmy, auctionator, db, ingest, merge, prices, store, users
 from .altarmy import Character
 from .engine import (
     AH_CUT,
@@ -99,6 +100,33 @@ class MarketCache:
                 self._markets.pop(ah, None)
 
 
+class RankCache:
+    """The last `size` full rankings (`search` results), so paging through one ("Show more") and refetching
+    it don't rank again. An entry only counts for the very Market it was ranked on: once the MarketCache
+    rebuilds a market (new prices, a merge, new game data), its rankings miss. The key must cover
+    everything else the ranking depends on (user, characters, parameters, AH blocks)."""
+
+    def __init__(self, size: int = 64) -> None:
+        self.size = size
+        self._lock = threading.Lock()
+        self._entries: OrderedDict[Hashable, tuple[Market, list[Result]]] = OrderedDict()
+
+    def get(self, key: Hashable, base: Market) -> list[Result] | None:
+        with self._lock:
+            found = self._entries.get(key)
+            if found is None or found[0] is not base:
+                return None
+            self._entries.move_to_end(key)
+            return found[1]
+
+    def put(self, key: Hashable, base: Market, results: list[Result]) -> None:
+        with self._lock:
+            self._entries[key] = (base, results)
+            self._entries.move_to_end(key)
+            while len(self._entries) > self.size:
+                self._entries.popitem(last=False)
+
+
 @dataclass(frozen=True)
 class Selection:
     """Whose recipes count: every character of one realm and faction (they share an auction house)."""
@@ -173,6 +201,7 @@ def _market(
         no_ah=no_ah,
         include_trivial=include_trivial,
         mail_postage=base.mail_postage,
+        sell_prices=base.sell_prices,
     )
 
 
@@ -409,6 +438,7 @@ def _sync_auctionator(conn: Connection, found: _Finder, force: bool, warnings: l
         ah = prices.auctionator_auction_house(conn, gv, key, sel.realm, sel.faction)
         prices.record_auctionator(conn, ah, realms[key], prices.file_time(path), uploader_uid=uid)
         prices.prune(conn)
+        merge.merge_auction_house(conn, ah, db.utcnow().date())
     found.update(
         conn,
         auctionator_realm=key or "",

@@ -87,6 +87,37 @@ def test_uploads_pool_and_the_newest_scan_wins(conn: Connection, other: str) -> 
     assert prices.load_current(conn, ah) == {1: 9}  # an older file doesn't win
 
 
+def test_a_wildly_off_scan_is_quarantined_and_costs_trust(conn: Connection, other: str) -> None:
+    def latest(price: int) -> bytes:
+        return scan({"Dreamscythe Horde": {str(i): {"m": price} for i in range(1, 31)}})
+
+    uploads.ingest(conn, ME, FOREVER, "auctionator", latest(100), NOW - timedelta(hours=2), now=NOW)
+    ah = prices.find_auction_house(conn, FOREVER, "Dreamscythe", "Horde")
+    pc = schema.price_current
+    conn.execute(pc.update().values(median_7d=100, scans_7d=5))  # as the merge job would
+
+    got = uploads.ingest(
+        conn, other, FOREVER, "auctionator", latest(10_000), NOW - timedelta(hours=1), now=NOW
+    )
+    (realm,) = got.realms
+    assert realm.quarantined and realm.moved == 0
+    assert got.detail == "Dreamscythe Horde: 30 prices not used: they differ widely from recent scans"
+    assert set(prices.load_current(conn, ah).values()) == {100}
+    assert users.trust(conn, other) == 0.5
+
+    got = uploads.ingest(conn, ME, FOREVER, "auctionator", latest(110), NOW, now=NOW)
+    assert not got.realms[0].quarantined
+    assert users.trust(conn, ME) == 1.0  # capped
+
+
+def test_trust_halves_on_quarantine_and_recovers(conn: Connection, other: str) -> None:
+    assert users.trust(conn, other) == 1.0
+    assert users.adjust_trust(conn, other, quarantined=True) == 0.5
+    assert users.adjust_trust(conn, other, quarantined=True) == 0.25
+    assert users.adjust_trust(conn, other, quarantined=False) == pytest.approx(0.35)
+    assert users.trust(conn, "nobody") == 1.0
+
+
 def test_scan_time_is_clamped() -> None:
     assert uploads.scan_time(None, NOW) == NOW
     assert uploads.scan_time(NOW + timedelta(days=1), NOW) == NOW

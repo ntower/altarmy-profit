@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploy an image to an environment, in order:
-#   1. define the Cloud Run jobs with the new image (migrate; prod also ingest-tbc, ingest-forever, prune)
+#   1. define the Cloud Run jobs with the new image (migrate and merge; prod also ingest-tbc, ingest-forever,
+#      prune). Only prod's are scheduled (setup.sh scheduler); staging's merge runs by hand
 #   2. run the migrate job and wait: migrations run once per deploy, before any new instance starts
 #   3. deploy the Cloud Run service (its instances never migrate)
 #   4. build the front end and deploy it to Firebase Hosting (prod: the live site; staging: the
@@ -29,6 +30,7 @@ job() { # job NAME ARGS...: the CLI with ARGS, as a Cloud Run job
 
 echo "== jobs ($ENV_NAME)"
 job "$JOB_PREFIX-migrate" migrate
+job "$JOB_PREFIX-merge" merge
 if [ "$ENV_NAME" = prod ]; then
   job "$JOB_PREFIX-ingest-tbc" --game-version tbc ingest --only-if-new --cache /tmp/cache
   job "$JOB_PREFIX-ingest-forever" --game-version forever ingest --only-if-new --cache /tmp/cache

@@ -49,6 +49,11 @@ function ItemLines({ item }: { item: ItemInfo }) {
           Auction: <Money copper={item.ah_price} />
         </div>
       )}
+      {item.ah_price != null && item.ah_sell_price != null && item.ah_sell_price < item.ah_price && (
+        <div>
+          Sells for (7-day median): <Money copper={item.ah_sell_price} />
+        </div>
+      )}
       {item.vendor_price != null && (
         <div>
           Vendor: <Money copper={item.vendor_price} />

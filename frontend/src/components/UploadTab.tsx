@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Alert, Badge, Button, Card, Code, FileInput, Group, Stack, Table, Text, Title } from '@mantine/core'
 import type { components } from '../api/schema'
-import { useUpload, useUploads, type UploadKind } from '../api/queries'
+import { useCoverage, useUpload, useUploads, type UploadKind } from '../api/queries'
+import { age } from '../lib/age'
 import { GAME_VERSIONS, useGameVersion } from '../lib/gameVersion'
 import { useSession } from '../lib/session'
 
@@ -26,9 +27,68 @@ function Summary({ result }: { result: UploadResult }) {
   }
   if (!result.realms.length) return <Text size="sm">No realm in the file has prices.</Text>
   return (
-    <Text size="sm">
-      {result.realms.map((r) => `${r.realm}${r.faction ? ` (${r.faction})` : ''}: ${r.items} prices, ${r.moved} changed`).join('; ')}
-    </Text>
+    <Stack gap={4}>
+      {result.realms.map((r) => (
+        <Group key={r.key} gap="xs">
+          <Text size="sm">
+            {r.realm}
+            {r.faction ? ` (${r.faction})` : ''}: {r.items} prices
+            {r.quarantined ? '' : `, ${r.moved} changed`}
+          </Text>
+          {r.quarantined && (
+            <Badge color="yellow" variant="light" title="They differ widely from recent scans of this realm">
+              not used
+            </Badge>
+          )}
+        </Group>
+      ))}
+    </Stack>
+  )
+}
+
+/** Each realm's newest scan, stalest first: where uploads are needed. */
+function CoverageCard() {
+  const coverage = useCoverage()
+  if (!coverage.data?.length) return null
+  const stalest = [...coverage.data].sort((a, b) => (a.last_scan ?? '').localeCompare(b.last_scan ?? ''))
+  return (
+    <Card withBorder>
+      <Stack gap="sm">
+        <Title order={4}>Coverage</Title>
+        <Text size="sm" c="dimmed">
+          Every user's scans price these auction houses. The stalest come first: a scan there helps the most.
+        </Text>
+        <Table aria-label="Coverage">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Realm</Table.Th>
+              <Table.Th>Last scan</Table.Th>
+              <Table.Th ta="right">Items in it</Table.Th>
+              <Table.Th ta="right">Prices</Table.Th>
+              <Table.Th ta="right">Scans (7 days)</Table.Th>
+              <Table.Th ta="right">Uploaders (7 days)</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {stalest.map((c) => (
+              <Table.Tr key={c.auction_house_id}>
+                <Table.Td>
+                  {c.realm}
+                  {c.faction ? ` (${c.faction})` : ''}
+                </Table.Td>
+                <Table.Td title={c.last_scan ? `${c.last_scan} UTC` : undefined}>
+                  {c.last_scan ? age(c.last_scan) : 'never'}
+                </Table.Td>
+                <Table.Td ta="right">{c.last_scan_items.toLocaleString()}</Table.Td>
+                <Table.Td ta="right">{c.prices.toLocaleString()}</Table.Td>
+                <Table.Td ta="right">{c.scans_7d}</Table.Td>
+                <Table.Td ta="right">{c.uploaders_7d}</Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
+      </Stack>
+    </Card>
   )
 }
 
@@ -69,7 +129,14 @@ function UploadCard({ kind, name, what }: { kind: UploadKind; name: string; what
         {tooBig && <Alert color="red">Files are limited to {MAX_MB} MB.</Alert>}
         {upload.isError && <Alert color="red">{upload.error.message}</Alert>}
         {upload.data && (
-          <Alert color="green" title="Uploaded">
+          <Alert
+            color={upload.data.realms.some((r) => r.quarantined) ? 'yellow' : 'green'}
+            title={
+              upload.data.realms.some((r) => r.quarantined)
+                ? 'Uploaded, but some prices were not used: they differ widely from recent scans'
+                : 'Uploaded'
+            }
+          >
             <Summary result={upload.data} />
           </Alert>
         )}
@@ -125,6 +192,7 @@ export function UploadTab() {
         <UploadCard key={f.kind} {...f} />
       ))}
       <History />
+      <CoverageCard />
     </Stack>
   )
 }

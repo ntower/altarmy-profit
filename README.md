@@ -46,6 +46,7 @@ altarmy-profit watch --server URL --key KEY    # upload the addon files to a hos
 altarmy-profit ingest --only-if-new            # the newest build, unless already loaded (the hosted daily job)
 altarmy-profit migrate                         # migrate the database now (each hosted deploy runs this once)
 altarmy-profit prune                           # drop price observations older than 90 days
+altarmy-profit merge                           # recompute daily medians and 7-day price statistics (hourly job)
 ```
 
 Every command takes `--game-version forever|tbc` (default `forever`) before the command name; it picks the
@@ -86,8 +87,8 @@ game. It has three tabs:
   shows the changed numbers. **Reset** goes back to the best plan. A row's ⋯ menu can mark its output
   **Never sell on auction house**: from then on it is only vendored or disenchanted (it can still be
   bought there).
-- **Prices** looks up an auction house's current prices by item name; **history** on a row shows
-  Auctionator's daily low, high and quantity for it.
+- **Prices** looks up an auction house's current prices and 7-day medians by item name; **history** on a
+  row shows Auctionator's daily low, high and quantity for it.
 - **Manage** lists the items never sold on the auction house (remove one to allow it again), downloads
   the chosen game's latest data (its newest build on wago.tools; prices are kept) and shows the addon
   files in use.
@@ -121,7 +122,9 @@ In hosted mode:
 - **Upload** takes `AltArmy_TBC.lua` (replaces your characters of the chosen game) and `Auctionator.lua`
   (adds a scan for every realm in it; everyone's scans fill the same auction houses, the newest price
   wins). Files are parsed on the server, never stored, and limited to 32 MB; the tab lists your recent
-  uploads, rejected ones included.
+  uploads, rejected ones included. A realm's scan whose prices mostly differ wildly from its recent
+  prices is not used (shown as **not used**), and makes the uploader's next scans face a stricter check.
+  **Coverage** lists every realm's last scan, stalest first, so you can see where a scan helps most.
 - **Manage → Upload automatically** makes API keys for the watcher (linked accounts only; a key can only
   upload, is shown once, and can be revoked). On the computer you play on, with this package installed:
 
@@ -173,8 +176,8 @@ Hosted mode runs on Google Cloud in `alt-army-prod` (us-central1). The config is
 |-------|------|
 | Firebase Hosting | serves `frontend/dist`; `/api/**` rewrites to Cloud Run. Prod is the live site; staging is the `staging` preview channel (https://alt-army-prod--staging-hn1s06um.web.app, expires 30 days after its last deploy) |
 | Cloud Run services | `altarmy` (min 0, max 2) and `altarmy-staging` (max 1): the API, 1 vCPU, 1 GiB. Instances never migrate |
-| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`), `altarmy-prune`. Staging has `altarmy-staging-migrate` |
-| Cloud Scheduler | ingest tbc 09:00 UTC, ingest forever 09:15, prune 10:00, run as `altarmy-scheduler` |
+| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`), `altarmy-prune`, `altarmy-merge`. Staging has `altarmy-staging-migrate` and `altarmy-staging-merge` (run by hand) |
+| Cloud Scheduler | ingest tbc 09:00 UTC, ingest forever 09:15, prune 10:00, merge hourly at :30, run as `altarmy-scheduler` |
 | Cloud SQL | `altarmy-pg`: Postgres 16, db-f1-micro, databases `altarmy` and `altarmy_staging` |
 | Secret Manager | `database-url`, `database-url-staging`: each database's `DATABASE_URL` (Cloud Run's Cloud SQL socket) |
 
@@ -226,8 +229,14 @@ Coarse Thread,120
   or `--build latest` for a newer one. The build actually loaded is stored in the `game_versions` table.
 - **Price history.** Every import is a snapshot (`price_snapshots`); it records observations only for
   items whose price or last-seen day moved (`price_observations`, pruned after 90 days) and updates
-  `price_current`, which the ranking reads. Auctionator's per-day high/low/available go to `price_daily`,
-  which is kept indefinitely (Auctionator itself forgets old days).
+  `price_current`, which the ranking reads. Auctionator's per-day high/low/available go to `price_daily`
+  (pooled across uploaders: lowest low, highest high), which is kept indefinitely (Auctionator itself
+  forgets old days).
+- **Buy and sell prices.** Reagents cost the current minimum buyout. A craft (and disenchant materials)
+  sells for the lower of that and the item's 7-day median: the median of its daily medians over its
+  latest 7 days with data in the last 30. So a lone overpriced listing (a 2g bag listed at 2,700g) isn't
+  taken for the going rate. The merge (`altarmy-profit merge`: after each local sync, hourly in hosted
+  mode) fills the medians; prices set by hand or CSV are used as they are.
 - **Disenchant results are not in DB2** (they are server-side loot tables). `data/<version>/disenchant.csv`
   (`item_class,quality,min_ilvl,max_ilvl,result_item_id,chance,min_count,max_count`) holds the rates.
   Forever's are Classic-era rates, derived from the brackets Auctionator uses for Classic clients, and
@@ -254,8 +263,9 @@ Coarse Thread,120
   Postgres), its tables and Alembic migrations; `legacy.py` imports older releases' SQLite files
 - `src/altarmy_profit/ingest.py` – download + load DB2 CSVs
 - `src/altarmy_profit/engine.py` – pure profit/chain logic (no I/O), covered by `tests/`
-- `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices)
-  and its sources (CSV, Auctionator SavedVariables via `auctionator.py`)
+- `src/altarmy_profit/prices.py` – the price store (auction houses, snapshots, current and daily prices,
+  screening uploads, coverage) and its sources (CSV, Auctionator SavedVariables via `auctionator.py`);
+  `merge.py` – daily medians and 7-day statistics
 - `src/altarmy_profit/altarmy.py` – characters and learned recipes from Alt Army's SavedVariables (`luasv.py` parses them)
 - `src/altarmy_profit/auth.py`, `users.py` – users and tiers (Firebase token verification in hosted mode,
   the fixed local user otherwise) and each user's settings and sync state

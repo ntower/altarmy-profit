@@ -32,9 +32,13 @@ export function useStatus() {
   })
 }
 
-/** Bumped by the server whenever a sync re-imported something; part of the keys of data it affects. */
+/**
+ * Part of the keys of data that imports and merges affect: the user's data version (bumped whenever a sync or upload
+ * re-imported something) and the selected auction house's price version (bumped by the hourly merge).
+ */
 export function useDataVersion() {
-  return useStatus().data?.data_version
+  const status = useStatus().data
+  return status && `${status.data_version}.${status.price_version ?? 0}`
 }
 
 export function useCharacters() {
@@ -100,7 +104,7 @@ export function useRank(params: RankParams) {
 
 /** What `/api/evaluate` needs besides the choices: the search's settings, and the data version its results
  * came from (so a sync re-costs the user's changed plans too). */
-export type EvaluateParams = Pick<RankParams, 'includeUnlearned' | 'includeTrivial' | 'exits'> & { version?: number }
+export type EvaluateParams = Pick<RankParams, 'includeUnlearned' | 'includeTrivial' | 'exits'> & { version?: string }
 
 export type EvaluationState = { data?: Evaluation; isFetching: boolean; error: Error | null }
 
@@ -201,6 +205,16 @@ export function usePriceHistory(auctionHouseId: number, itemId: number) {
           },
         }),
       ),
+  })
+}
+
+/** Each realm's scans of the chosen game (every tier), so uploaders see where scans are needed. */
+export function useCoverage() {
+  const gameVersion = useGameVersion()
+  const version = useDataVersion()
+  return useQuery({
+    queryKey: ['coverage', gameVersion, version],
+    queryFn: () => call(client.GET('/api/coverage', gv(gameVersion))),
   })
 }
 

@@ -8,7 +8,7 @@
 #   deploy/setup.sh sql          Cloud SQL instance (Postgres 16, db-f1-micro, 10 GB SSD)
 #   deploy/setup.sh database ENV   a database, its user (random password) and the DATABASE_URL secret
 #   deploy/setup.sh wif          Workload Identity Federation for GitHub Actions
-#   deploy/setup.sh scheduler    daily Cloud Scheduler jobs (after the first prod deploy made the jobs)
+#   deploy/setup.sh scheduler    Cloud Scheduler jobs (after a prod deploy made the jobs; existing ones are kept)
 #
 # Then: BUILDER=cloudbuild deploy/build.sh, deploy/deploy.sh prod|staging IMAGE (README, "Deploy").
 set -euo pipefail
@@ -88,7 +88,11 @@ wif() {
   echo "  GCP_DEPLOY_SA=$DEPLOY_SA"
 }
 
-schedule() { # schedule NAME CRON: run the prod job NAME daily
+schedule() { # schedule NAME CRON: run the prod job NAME on CRON (UTC); skipped if it exists
+  if gcloud scheduler jobs describe "$1" --location "$REGION" "${G[@]}" >/dev/null 2>&1; then
+    echo "schedule $1 exists"
+    return
+  fi
   gcloud scheduler jobs create http "$1" --location "$REGION" --schedule "$2" --time-zone Etc/UTC \
     --uri "https://run.googleapis.com/v2/projects/$PROJECT/locations/$REGION/jobs/$1:run" \
     --http-method POST --oauth-service-account-email "$SCHEDULER_SA" \
@@ -99,6 +103,7 @@ scheduler() {
   schedule altarmy-ingest-tbc "0 9 * * *"
   schedule altarmy-ingest-forever "15 9 * * *"
   schedule altarmy-prune "0 10 * * *"
+  schedule altarmy-merge "30 * * * *" # hourly: daily medians and 7-day price statistics
 }
 
 case "${1:-}" in
