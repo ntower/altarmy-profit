@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import Connection, select
+from sqlalchemy import Connection, inspect, select
 
 from altarmy_profit import db, schema
 
@@ -71,3 +71,18 @@ def test_urls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     local = db.Database(db.sqlite_url(tmp_path / "x.sqlite"))
     assert local.display_url.endswith("x.sqlite")
     assert not (tmp_path / "x.sqlite").exists()  # nothing touched until first use
+
+
+def test_a_database_that_does_not_migrate_leaves_the_schema_alone(tmp_path: Path) -> None:
+    """Hosted instances don't migrate: the per-deploy migrate job does (`altarmy-profit migrate`)."""
+    database = db.Database(db.sqlite_url(tmp_path / "x.sqlite"), migrate=False)
+    with database.begin() as conn:
+        assert inspect(conn).get_table_names() == []
+    database.dispose()
+
+
+def test_pool_size_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert db.pool_options() == {}
+    monkeypatch.setenv("DB_POOL_SIZE", "3")
+    monkeypatch.setenv("DB_MAX_OVERFLOW", "2")
+    assert db.pool_options() == {"pool_size": 3, "max_overflow": 2}

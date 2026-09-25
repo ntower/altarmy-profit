@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Connection, Engine, Table, create_engine, event, func, select
+from sqlalchemy import Connection, Engine, Table, create_engine, event, func, select, text
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import make_url
 
@@ -49,17 +49,29 @@ def timestamp_text(dt: datetime | None) -> str | None:
     return None if dt is None else utc(dt).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def pool_options() -> dict[str, int]:
+    """Connection pool sizes from `DB_POOL_SIZE` and `DB_MAX_OVERFLOW`, when set (Cloud SQL's small tiers
+    allow few connections, shared by every instance and job)."""
+    options = {}
+    for env, key in (("DB_POOL_SIZE", "pool_size"), ("DB_MAX_OVERFLOW", "max_overflow")):
+        if value := os.environ.get(env):
+            options[key] = int(value)
+    return options
+
+
 class Database:
-    """One engine per process, created on first use; the schema is migrated to the newest revision then.
+    """One engine per process, created on first use; the schema is migrated to the newest revision then,
+    unless `migrate` is False (hosted instances: the deploy runs `altarmy-profit migrate` once instead).
 
     Share one instance across threads and open a connection per request (`begin` or `connect`).
     """
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, *, migrate: bool = True) -> None:
         self.url = make_url(url)
         self._engine: Engine | None = None
         self._lock = threading.Lock()
-        self._ready = False
+        self._ready = not migrate
+        self.migrates = migrate
 
     @property
     def is_sqlite(self) -> bool:
@@ -81,7 +93,7 @@ class Database:
 
     def _create_engine(self) -> Engine:
         if not self.is_sqlite:
-            return create_engine(self.url, pool_pre_ping=True)
+            return create_engine(self.url, pool_pre_ping=True, **pool_options())
         if self.url.database:
             Path(self.url.database).parent.mkdir(parents=True, exist_ok=True)
         engine = create_engine(self.url, connect_args={"timeout": 30})
@@ -138,10 +150,24 @@ def alembic_config(conn: Connection | None = None) -> Any:
     return cfg
 
 
+MIGRATION_LOCK = 0x616C7461  # Postgres advisory lock id held while migrating ("alta")
+
+
 def upgrade(conn: Connection, revision: str = "head") -> None:
+    """Migrate to `revision`. On Postgres, concurrent upgrades (a deploy's migrate job, a CLI) wait for
+    each other on an advisory lock held until the transaction ends."""
     from alembic import command
 
+    if conn.dialect.name == "postgresql":
+        conn.execute(text("SELECT pg_advisory_xact_lock(:id)"), {"id": MIGRATION_LOCK})
     command.upgrade(alembic_config(conn), revision)
+
+
+def current_revision(conn: Connection) -> str | None:
+    from alembic.migration import MigrationContext
+
+    rev: str | None = MigrationContext.configure(conn).get_current_revision()
+    return rev
 
 
 def register_versions(conn: Connection) -> None:

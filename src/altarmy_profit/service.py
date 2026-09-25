@@ -8,6 +8,7 @@ the game has rewritten it (on logout or /reload).
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,10 +31,22 @@ from .engine import (
 )
 from .versions import GameVersion
 
+STAMP_TTL = 10.0  # seconds a cached market is trusted before its stamp is checked again
+
+
+@dataclass
+class _Cached:
+    market: Market
+    stamp: store.MarketStamp
+    checked: float  # clock time of the last stamp check
+
 
 class MarketCache:
     """In-process Markets for one game version, one per auction house, shared by all requests; rebuilt
     from the database lazily after invalidate().
+
+    Other processes (instances, the ingest job) change the database too, so a market is also rebuilt when
+    its `store.market_stamp` moved, checked at most every STAMP_TTL seconds.
 
     Market is read-only once built, so handing the same instance to several threads is safe.
     """
@@ -45,28 +58,36 @@ class MarketCache:
         *,
         ah_cut: float = AH_CUT,
         mail_postage: int = MAIL_POSTAGE,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.database = database
         self.game_version = game_version
         self.ah_cut = ah_cut
         self.mail_postage = mail_postage
+        self._clock = clock
         self._lock = threading.Lock()
-        self._markets: dict[int | None, Market] = {}
+        self._markets: dict[int | None, _Cached] = {}
 
     def get(self, auction_house_id: int | None) -> Market:
         """The version's game data priced by the auction house (None: unpriced)."""
         with self._lock:
-            market = self._markets.get(auction_house_id)
-            if market is None:
-                with self.database.begin() as conn:
-                    market = store.load_market(
-                        conn,
-                        self.game_version,
-                        auction_house_id,
-                        ah_cut=self.ah_cut,
-                        mail_postage=self.mail_postage,
-                    )
-                self._markets[auction_house_id] = market
+            cached = self._markets.get(auction_house_id)
+            now = self._clock()
+            if cached is not None and now - cached.checked < STAMP_TTL:
+                return cached.market
+            with self.database.begin() as conn:
+                stamp = store.market_stamp(conn, self.game_version, auction_house_id)
+                if cached is not None and cached.stamp == stamp:
+                    cached.checked = now
+                    return cached.market
+                market = store.load_market(
+                    conn,
+                    self.game_version,
+                    auction_house_id,
+                    ah_cut=self.ah_cut,
+                    mail_postage=self.mail_postage,
+                )
+            self._markets[auction_house_id] = _Cached(market, stamp, now)
             return market
 
     def invalidate(self, auction_house_ids: Iterable[int] | None = None) -> None:

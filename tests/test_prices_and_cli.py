@@ -274,3 +274,53 @@ def test_cli_ingest_uses_the_game_versions_build_and_product(
     with database.begin() as conn:
         assert (db.get_build(conn, "tbc"), db.get_build(conn, FOREVER)) == ("2.5.7.1", None)
     database.dispose()
+
+
+def test_cli_skips_old_version_files_with_a_database_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Hosted jobs set DATABASE_URL: the legacy import (local SQLite files) must never run there."""
+    from altarmy_profit import legacy
+
+    monkeypatch.chdir(tmp_path)
+    old = legacy.version_file("tbc", Path("data"))
+    old.parent.mkdir()
+    conn = legacy.connect(old)
+    legacy.init_schema(conn)
+    conn.commit()
+    conn.close()
+    monkeypatch.setenv("DATABASE_URL", db.sqlite_url(tmp_path / "hosted.sqlite"))
+    cli.main(["set-price", "1", "45"])
+    assert "Imported" not in capsys.readouterr().out
+    assert old.is_file()
+
+
+def test_cli_migrate_and_prune(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    dbfile = str(tmp_path / "m.sqlite")
+    cli.main(["--db", dbfile, "migrate"])
+    assert "Database at revision" in capsys.readouterr().out
+    cli.main(["--db", dbfile, "set-price", "1", "45"])
+    cli.main(["--db", dbfile, "prune"])
+    assert "Pruned" in capsys.readouterr().out
+
+
+def test_cli_ingest_only_if_new_skips_a_loaded_build(
+    db2_paths: dict[str, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    builds: list[str] = []
+
+    def download_all(build: str, cache_dir: Path) -> dict[str, Path]:
+        builds.append(build)
+        return db2_paths
+
+    monkeypatch.setattr(ingest, "download_all", download_all)
+    monkeypatch.setattr(ingest, "latest_build", lambda product: "2.5.7.1")
+    dbfile = str(tmp_path / "t.sqlite")
+    cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--only-if-new"])
+    assert "Ingested TBC Anniversary build 2.5.7.1" in capsys.readouterr().out
+    cli.main(["--game-version", "tbc", "--db", dbfile, "ingest", "--only-if-new"])
+    assert "already loaded" in capsys.readouterr().out
+    assert builds == ["2.5.7.1"]

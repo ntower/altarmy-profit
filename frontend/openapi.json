@@ -2276,6 +2276,21 @@
       }
     },
     "/api/me": {
+      "delete": {
+        "description": "Delete your account: your characters, settings, AH blocks, upload history and API keys, then the\nsign-in account itself. Prices you uploaded stay in the pool, no longer linked to you.",
+        "operationId": "delete_me_api_me_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Me"
+      },
       "get": {
         "operationId": "get_me_api_me_get",
         "responses": {

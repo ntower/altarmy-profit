@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from .db import LOCAL_UID
 
@@ -43,6 +43,17 @@ class InvalidToken(Exception):
 class TokenVerifier(Protocol):
     def verify(self, token: str) -> Mapping[str, Any]:
         """The token's claims; InvalidToken if it does not verify."""
+        ...
+
+
+class AccountError(Exception):
+    """The sign-in provider could not delete the account."""
+
+
+@runtime_checkable
+class AccountAdmin(Protocol):
+    def delete_user(self, uid: str) -> None:
+        """Delete the sign-in account (already gone is fine); AccountError if that failed."""
         ...
 
 
@@ -91,9 +102,10 @@ class FirebaseConfig:
 
 
 class FirebaseVerifier:
-    """Verifies Firebase ID tokens with firebase-admin (the `hosted` extra). Only the project id is needed:
-    the signing keys are Google's public certificates. With `FIREBASE_AUTH_EMULATOR_HOST` set,
-    firebase-admin accepts the emulator's unsigned tokens instead."""
+    """Verifies Firebase ID tokens with firebase-admin (the `hosted` extra), and deletes accounts. Verifying
+    needs only the project id (the signing keys are Google's public certificates); deleting needs
+    credentials with Firebase Auth admin rights (on Cloud Run, the service account's). With
+    `FIREBASE_AUTH_EMULATOR_HOST` set, firebase-admin talks to the emulator instead."""
 
     def __init__(self, project_id: str) -> None:
         import firebase_admin
@@ -112,3 +124,13 @@ class FirebaseVerifier:
         except (ValueError, auth.InvalidIdTokenError, auth.ExpiredIdTokenError) as e:
             raise InvalidToken(str(e)) from e
         return claims
+
+    def delete_user(self, uid: str) -> None:
+        from firebase_admin import auth, exceptions
+
+        try:
+            auth.delete_user(uid, app=self._app)
+        except auth.UserNotFoundError:
+            pass
+        except (ValueError, exceptions.FirebaseError) as e:
+            raise AccountError(str(e)) from e

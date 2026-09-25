@@ -1,5 +1,5 @@
 """Command line interface: ingest, import-prices, import-auctionator, import-altarmy, set-price, rank, ui,
-watch.
+watch, and the hosted jobs' migrate and prune.
 
 `--game-version` (tbc | forever) picks the game's data, files and wago.tools product. Every version shares
 one database: `--db` (a SQLite file), else `DATABASE_URL`, else data/altarmy-profit.sqlite.
@@ -35,12 +35,37 @@ def _database(args: argparse.Namespace) -> db.Database:
 
 def cmd_ingest(args: argparse.Namespace) -> None:
     v = _version(args)
+    if args.only_if_new:  # the hosted daily job: the newest build, unless it is already loaded
+        with args.database.begin() as conn:
+            build, updated, stats = service.update_game_data(conn, v, Path(args.cache), only_if_new=True)
+        print(
+            f"Ingested {v.label} build {build}: {stats}"
+            if updated
+            else f"{v.label} build {build} already loaded."
+        )
+        return
     build = args.build or v.default_build
     if build == "latest":
         build = ingest.latest_build(v.wago_product)
     with args.database.begin() as conn:
         stats = ingest.update(conn, v.key, build, Path(args.cache), v.disenchant_csv, v.vendor_csv)
     print(f"Ingested {v.label} build {build}: {stats}")
+
+
+def cmd_migrate(args: argparse.Namespace) -> None:
+    """Migrate to the newest revision (a hosted deploy runs this once, before the new service starts)."""
+    with args.database.begin() as conn:
+        db.upgrade(conn)
+        db.register_versions(conn)
+        db.register_local_user(conn)
+        revision = db.current_revision(conn)
+    print(f"Database at revision {revision}.")
+
+
+def cmd_prune(args: argparse.Namespace) -> None:
+    with args.database.begin() as conn:
+        prices.prune(conn)
+    print(f"Pruned price observations older than {prices.KEEP_DAYS} days.")
 
 
 def cmd_import_prices(args: argparse.Namespace) -> None:
@@ -183,7 +208,16 @@ def main(argv: list[str] | None = None) -> None:
     s = sub.add_parser("ingest", help="download DB2 tables from wago.tools and build the database")
     s.add_argument("--build", help='a build version, or "latest" (default: the pinned build)')
     s.add_argument("--cache", default="cache")
+    s.add_argument(
+        "--only-if-new", action="store_true", help="load the latest build, unless the database already has it"
+    )
     s.set_defaults(fn=cmd_ingest)
+
+    s = sub.add_parser("migrate", help="migrate the database to the newest schema revision")
+    s.set_defaults(fn=cmd_migrate)
+
+    s = sub.add_parser("prune", help=f"drop price observations older than {prices.KEEP_DAYS} days")
+    s.set_defaults(fn=cmd_prune)
 
     s = sub.add_parser("import-prices", help="import prices from CSV (item_id|name, price in copper)")
     s.add_argument("file")
@@ -246,7 +280,7 @@ def main(argv: list[str] | None = None) -> None:
         return
     args.database = _database(args)
     try:
-        if args.db is None:
+        if args.db is None and not os.environ.get("DATABASE_URL"):  # only the default local SQLite file
             for path in legacy.import_version_files(args.database):
                 print(f"Imported {path} into {args.database.display_url} (kept as {path.name}.imported).")
         args.fn(args)

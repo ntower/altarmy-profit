@@ -38,6 +38,23 @@ class ItemDetails:
     icon: str | None
 
 
+MarketStamp = tuple[str | None, int | None]
+
+
+def market_stamp(conn: Connection, game_version: str, auction_house_id: int | None) -> MarketStamp:
+    """What a cached market was built from: the version's game data build and the auction house's newest
+    snapshot (every price write adds one). If either moved, the market is stale."""
+    snap = schema.price_snapshots
+    newest = (
+        None
+        if auction_house_id is None
+        else conn.execute(
+            select(func.max(snap.c.id)).where(snap.c.auction_house_id == auction_house_id)
+        ).scalar_one_or_none()
+    )
+    return db.get_build(conn, game_version), newest
+
+
 def load_market(
     conn: Connection,
     game_version: str,

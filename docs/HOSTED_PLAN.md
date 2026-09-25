@@ -106,7 +106,8 @@ Postgres. Differences from the list above:
   seen no earlier), so an unchanged re-sync adds nothing; `item_count` records the scan's size.
 - `price_daily` is filled from Auctionator's per-day fields (`h`/`l`/`a`), not aggregated; `median` and
   `price_current`'s 7-day columns stay NULL until the Phase 6 merge job.
-- Monthly partitioning of `price_observations` is Postgres-only and moves to Phase 5.
+- Monthly partitioning of `price_observations` is Postgres-only; moved to Phase 5, then deferred to Phase 6
+  (observations hold only news, so the daily DELETE prune is plenty at current volume).
 - A realm name of `""` is the unnamed auction house that CLI prices use before any characters exist.
 
 Phase 3 status (done): Alembic revision `0002` adds `users`, typed `user_settings`, `local_sync` and the
@@ -194,8 +195,9 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
   own timezone. Near midnight an item can get the start of its day instead of the scan time. A later
   fix: send the uploader's UTC offset.
 - Uploads bump only the uploader's `data_version` and invalidate only this process's cached markets. Other
-  users and other instances see pooled prices on their next refetch or cache rebuild (Phase 6's price
-  version).
+  users see pooled prices on their next refetch. Other instances (Phase 5) notice within `STAMP_TTL`
+  (10 s): a cached market is rebuilt when its stamp (the build, the auction house's newest snapshot id)
+  moved.
 - Limits: 32 MB decompressed per file, 60 uploads per user per hour (rejected ones count). The parsers
   cap nesting depth and turn malformed input into `ValueError` (400); a seeded fuzz test holds them to it.
 - Uploads are accepted as they come. Quarantine and trust are Phase 6.
@@ -237,6 +239,29 @@ Phase 4 status (done): browser upload (Upload tab, hosted mode, every tier), the
 - Rate limiting per uid and per IP. Privacy: only extracted fields are stored, raw uploads are discarded, an
   account-deletion endpoint exists, and the site carries a short privacy note.
 
+Phase 5 status (done, 2026-09-24): live at https://alt-army-prod.web.app, staging at
+https://alt-army-prod--staging-hn1s06um.web.app. README's "Deploy" has the pieces and commands; `deploy/`
+and `Dockerfile` hold them. Differences from the list above:
+
+- Scheduled work runs as **Cloud Run jobs** (the image running the CLI: `ingest --only-if-new` per version,
+  `prune`), started by Cloud Scheduler with its own service account over OAuth. There are no admin HTTP
+  routes, and downloads use the job's `/tmp` rather than a serving instance.
+- Migrations run once per deploy as the `altarmy-migrate` job, before the new revision; hosted instances
+  never migrate (`Database(migrate=False)`), and `db.upgrade` takes a Postgres advisory lock.
+- Cloud Run reaches Cloud SQL through its built-in socket (no connector library or VPC). Secret Manager holds
+  only `DATABASE_URL`: token checks need no secret, and the runtime service account's own credentials
+  (`roles/firebaseauth.admin`) delete Firebase users. Blizzard secrets wait for Phase 7.
+- Staging is not a separate Firebase project: a second service, database (same instance) and a Hosting
+  preview channel, sharing `alt-army-prod`'s Auth users.
+- Min instances 0 (cold starts of a few seconds after idling), max 2; cached markets check a DB stamp
+  (above), so several instances stay consistent.
+- Rate limits are in memory per instance (per IP 300/min, per uid 120/min). The client IP is the first
+  `X-Forwarded-For` entry: correct through Firebase Hosting (it replaces a client-sent header), spoofable
+  by calling the `run.app` URL directly, where only the per-uid limit is reliable.
+- `DELETE /api/me` deletes the user's rows (their snapshots stay, with `uploader_uid` cleared) and the
+  Firebase user in one transaction; the privacy note in the footer offers it.
+- Hourly merge/aggregation, the Blizzard poll and `price_observations` partitions moved to Phases 6 and 7.
+
 ## 11. Phases
 
 Each phase ships on its own and local mode keeps working throughout.
@@ -254,10 +279,10 @@ Each phase ships on its own and local mode keeps working throughout.
 4. **Uploaders** (done). Browser upload, CLI watcher, API keys; email sign-in, password reset and sign-out.
    Checked with the real files through the emulator (uploads, linking, the watcher's first and repeat
    runs) and against `alt-army-prod` (anonymous and email sign-up, tokens verified by `firebase-admin`).
-5. **Deploy.** Cloud Run, Cloud SQL, Firebase Hosting, scheduler jobs, deploy from CI; monthly partitions
-   for `price_observations`.
+5. **Deploy** (done). Cloud Run, Cloud SQL, Firebase Hosting, scheduled Cloud Run jobs, deploy from CI
+   (Workload Identity Federation), staging, rate limits, account deletion, privacy note.
 6. **Pooling quality and performance.** Merge job, quarantine and trust, coverage page, rank cache and
-   precompute if the benchmark demands it.
+   precompute if the benchmark demands it; monthly partitions for `price_observations`.
 7. **More sources and uploaders.** Blizzard API poller, AHDB parser, tray app, Alt Army paste export.
 
 ## 12. Verification per phase
@@ -266,7 +291,9 @@ Each phase ships on its own and local mode keeps working throughout.
 - From Phase 2, a Postgres CI job (`.github/workflows/check.yml`, a postgres:16 service) runs pytest
   with `TEST_DATABASE_URL` set; locally, the same with any throwaway Postgres database.
 - Phase 0 and 6: benchmark numbers recorded in this file's changelog.
-- Phase 5: a staging Cloud Run deploy against a test Firebase project.
+- Phase 5: a staging deploy (second Cloud Run service, database and Hosting channel in `alt-army-prod`),
+  checked end to end with a script against the real Firebase project: anonymous sign-in, gated prices,
+  linking, both uploads, rank, an API key and the watcher, the per-user 429 and account deletion; then prod.
 - End-to-end, manual: an anonymous visit sees only prices for items with required level 30 and below; link the
   account; upload both files; rank; change a file locally and see the watcher POST it.
 
@@ -276,7 +303,7 @@ Each phase ships on its own and local mode keeps working throughout.
   If a future realm list breaks that, add `region` to the key and a realm directory to resolve it; until
   then the merge job only logs when one realm name arrives tagged with two regions.
 - Retention window for raw observations: decided in Phase 2, 90 days (`prices.KEEP_DAYS`, pruned at each
-  local sync; the hosted daily job will call the same `prices.prune`). `price_daily` is kept indefinitely.
+  local sync; the hosted daily `altarmy-prune` job calls the same `prices.prune`). `price_daily` is kept indefinitely.
 - Whether the TBC Anniversary realms will ever expose a Blizzard AH endpoint; the plan does not depend on it.
 
 ## 14. Phase 0 findings (2026-09-24)

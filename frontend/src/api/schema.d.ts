@@ -208,7 +208,12 @@ export interface paths {
         get: operations["get_me_api_me_get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Me
+         * @description Delete your account: your characters, settings, AH blocks, upload history and API keys, then the
+         *     sign-in account itself. Prices you uploaded stay in the pool, no longer linked to you.
+         */
+        delete: operations["delete_me_api_me_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1455,6 +1460,24 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Me"];
                 };
+            };
+        };
+    };
+    delete_me_api_me_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

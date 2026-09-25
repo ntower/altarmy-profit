@@ -19,7 +19,17 @@ def claims(uid: str, provider: str) -> dict[str, Any]:
 
 
 class FakeVerifier:
-    """Tokens are "<provider>:<uid>", e.g. "anonymous:abc" or "google.com:abc"; anything else is invalid."""
+    """Tokens are "<provider>:<uid>", e.g. "anonymous:abc" or "google.com:abc"; anything else is invalid.
+    Also the account admin: `deleted` lists the uids deleted, and `fail` makes deletion fail."""
+
+    def __init__(self) -> None:
+        self.deleted: list[str] = []
+        self.fail = False
+
+    def delete_user(self, uid: str) -> None:
+        if self.fail:
+            raise auth.AccountError("Firebase is down")
+        self.deleted.append(uid)
 
     def verify(self, token: str) -> Mapping[str, Any]:
         provider, sep, uid = token.partition(":")

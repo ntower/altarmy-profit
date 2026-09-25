@@ -3,7 +3,7 @@
     "public": "frontend/dist",
     "ignore": ["**/.*"],
     "rewrites": [
-      { "source": "/api/**", "run": { "serviceId": "altarmy", "region": "us-central1" } },
+      { "source": "/api/**", "run": { "serviceId": "altarmy-staging", "region": "us-central1" } },
       { "source": "**", "destination": "/index.html" }
     ],
     "headers": [
@@ -12,10 +12,5 @@
         "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
       }
     ]
-  },
-  "emulators": {
-    "auth": { "host": "127.0.0.1", "port": 9099 },
-    "ui": { "enabled": false },
-    "singleProjectMode": true
   }
 }

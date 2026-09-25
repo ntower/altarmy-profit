@@ -1,0 +1,7 @@
+# `deploy/build.sh` with BUILDER=cloudbuild: build and push the image on Cloud Build (no local Docker).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}", "."]
+images: ["${_IMAGE}"]
+options:
+  logging: CLOUD_LOGGING_ONLY

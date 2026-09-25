@@ -1,0 +1,6 @@
+*
+!pyproject.toml
+!src/
+!data/forever/*.csv
+!data/tbc/*.csv
+**/__pycache__

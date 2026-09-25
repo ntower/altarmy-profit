@@ -36,6 +36,16 @@ def ensure_user(conn: Connection, user: User) -> None:
         conn.execute(t.update().where(t.c.uid == user.uid).values(**values))
 
 
+def delete_user(conn: Connection, user_uid: str) -> None:
+    """Delete the user and everything they own (characters, settings, AH blocks, uploads, API keys cascade).
+    Their price snapshots stay in the pool, no longer attributed to them."""
+    if user_uid == db.LOCAL_UID:
+        raise ValueError("the local user can't be deleted")
+    snap = schema.price_snapshots
+    conn.execute(snap.update().where(snap.c.uploader_uid == user_uid).values(uploader_uid=None))
+    conn.execute(delete(schema.users).where(schema.users.c.uid == user_uid))
+
+
 @dataclass(frozen=True)
 class UserSettings:
     selected_realm: str | None = None  # with selected_faction: whose characters count

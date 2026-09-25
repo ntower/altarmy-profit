@@ -1,0 +1,13 @@
+# What `gcloud builds submit` (deploy/build.sh on a machine without Docker) uploads: only what the image needs.
+*
+!pyproject.toml
+!Dockerfile
+!.dockerignore
+!src/
+!src/**
+!data/
+!data/forever/
+!data/forever/*.csv
+!data/tbc/
+!data/tbc/*.csv
+**/__pycache__

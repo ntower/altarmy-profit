@@ -7,7 +7,19 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Connection, select
 
-from altarmy_profit import altarmy, auth, db, ingest, prices, schema, service, store, uploads, users
+from altarmy_profit import (
+    altarmy,
+    auth,
+    db,
+    ingest,
+    prices,
+    ratelimit,
+    schema,
+    service,
+    store,
+    uploads,
+    users,
+)
 from altarmy_profit.altarmy import Character, Profession
 from altarmy_profit.api import create_app
 from altarmy_profit.versions import GameVersion
@@ -767,3 +779,88 @@ def test_local_mode_uploads_as_the_local_user(client: TestClient, conn: Connecti
     assert (
         upload(client, "altarmy", ALTARMY_SV, {"Authorization": f"Bearer {made['key']}"}).status_code == 200
     )
+
+
+def _hosted_app(
+    tmp_path: Path,
+    game_versions: dict[str, GameVersion],
+    database: db.Database,
+    verifier: FakeVerifier,
+    limits: ratelimit.Limits | None = None,
+) -> TestClient:
+    app = create_app(
+        game_versions,
+        database=database,
+        cache_dir=tmp_path / "cache",
+        static_dir=tmp_path / "nodist",
+        mode="hosted",
+        verifier=verifier,
+        firebase=auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", None),
+        limits=limits,
+    )
+    c = TestClient(app)
+    c.params = c.params.set("game_version", "forever")
+    return c
+
+
+def test_users_delete_their_account(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database, conn: Connection
+) -> None:
+    verifier = FakeVerifier()
+    hosted = _hosted_app(tmp_path, game_versions, database, verifier)
+    upload(hosted, "altarmy", ALTARMY_SV, LINKED)
+    upload(hosted, "auctionator", _saved_variables({"ClassicBetaPvE": {"1": _entry(20)}}), LINKED)
+    hosted.post("/api/keys", headers=LINKED, json={"label": "pc"})
+
+    verifier.fail = True
+    assert hosted.delete("/api/me", headers=LINKED).status_code == 502
+    assert store.count_characters(conn, "g1", FOREVER) == 4  # rolled back with the Firebase failure
+
+    verifier.fail = False
+    assert hosted.delete("/api/me", headers=LINKED).status_code == 204
+    assert verifier.deleted == ["g1"]
+    assert store.count_characters(conn, "g1", FOREVER) == 0
+    assert conn.execute(select(schema.users.c.uid).where(schema.users.c.uid == "g1")).first() is None
+    for table in (schema.uploads, schema.api_keys, schema.user_settings):
+        assert conn.execute(select(table)).first() is None
+    snap = schema.price_snapshots
+    assert conn.execute(select(snap.c.uploader_uid)).scalars().all() == [None]  # pooled prices stay
+    assert conn.execute(select(schema.price_current)).first() is not None
+
+
+def test_local_mode_has_no_account_to_delete(client: TestClient) -> None:
+    assert client.delete("/api/me").status_code == 404
+
+
+def test_hosted_mode_rate_limits_per_user_and_ip(
+    tmp_path: Path, game_versions: dict[str, GameVersion], database: db.Database
+) -> None:
+    hosted = _hosted_app(
+        tmp_path, game_versions, database, FakeVerifier(), ratelimit.Limits(per_ip=5, per_uid=2, window=60)
+    )
+    ip1 = {"X-Forwarded-For": "203.0.113.1"}
+    assert [hosted.get("/api/me", headers={**LINKED, **ip1}).status_code for _ in range(3)] == [200, 200, 429]
+    res = hosted.get("/api/me", headers={**FREE, **ip1})  # another user from the same address
+    assert res.status_code == 200
+    assert [hosted.get("/api/versions", headers=ip1).status_code for _ in range(2)] == [200, 429]
+    assert int(hosted.get("/api/versions", headers=ip1).headers["Retry-After"]) >= 1
+    assert hosted.get("/api/versions", headers={"X-Forwarded-For": "203.0.113.2"}).status_code == 200
+
+
+def test_api_responses_are_never_cached(client: TestClient) -> None:
+    assert client.get("/api/versions").headers["Cache-Control"] == "no-store"
+
+
+def test_hosted_instances_leave_migrations_to_the_deploy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, game_versions: dict[str, GameVersion]
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", db.sqlite_url(tmp_path / "hosted.sqlite"))
+    app = create_app(
+        game_versions,
+        mode="hosted",
+        verifier=FakeVerifier(),
+        firebase=auth.FirebaseConfig("demo-altarmy", "key", "demo-altarmy.firebaseapp.com", None),
+    )
+    assert not app.state.auth.database.migrates
+    local = create_app(game_versions, mode="local")
+    assert local.state.auth.database.migrates

@@ -234,6 +234,28 @@ def test_market_cache_reloads_only_after_invalidate(
     assert len(cache.get(ah).recipes) == 1
 
 
+def test_market_cache_sees_other_processes_changes_after_its_ttl(
+    db2_paths: dict[str, Path], conn: Connection, database: db.Database
+) -> None:
+    """Another instance (or an ingest job) changed prices or game data: the stamp check reloads."""
+    ingest.build_db(db2_paths, conn, FOREVER)
+    ah = set_prices(conn, {1: 5})
+    now = [0.0]
+    cache = service.MarketCache(database, FOREVER, clock=lambda: now[0])
+    first = cache.get(ah)
+    prices.set_price(conn, ah, 1, 7)  # as another instance's upload would
+    now[0] += service.STAMP_TTL / 2
+    assert cache.get(ah) is first  # checked at most every STAMP_TTL seconds
+    now[0] += service.STAMP_TTL
+    assert cache.get(ah).prices == {1: 7}
+    second = cache.get(ah)
+    now[0] += service.STAMP_TTL * 2
+    assert cache.get(ah) is second  # nothing changed: kept
+    db.set_build(conn, FOREVER, "1.60.2.1")  # a game data update
+    now[0] += service.STAMP_TTL * 2
+    assert cache.get(ah) is not second
+
+
 def test_pricing_auction_house(conn: Connection, wow_root: Path) -> None:
     unnamed = service.pricing_auction_house(conn, ME, FOREVER)  # no characters yet
     assert service.selected_auction_house(conn, ME, FOREVER) == unnamed

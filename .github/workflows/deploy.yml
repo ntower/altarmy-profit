@@ -1,0 +1,51 @@
+name: deploy
+
+# Prod: after `check` passes for a push to main. Staging (or prod by hand): Run workflow.
+# Authenticates with Workload Identity Federation (no key): set the repo variables GCP_WIF_PROVIDER and
+# GCP_DEPLOY_SA that `deploy/setup.sh wif` prints.
+on:
+  workflow_run:
+    workflows: [check]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        type: choice
+        options: [staging, prod]
+        default: staging
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-${{ inputs.environment || 'prod' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_ENV: ${{ inputs.environment || 'prod' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - run: npm ci
+        working-directory: frontend
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+      - id: build
+        run: echo "image=$(bash deploy/build.sh "$(git rev-parse --short=12 HEAD)")" >> "$GITHUB_OUTPUT"
+      - run: bash deploy/deploy.sh "$DEPLOY_ENV" "${{ steps.build.outputs.image }}"

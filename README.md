@@ -43,6 +43,9 @@ altarmy-profit set-price 2589 250              # one item, copper
 altarmy-profit rank --top 25 --realm "Classic Beta PvE" --faction Horde   # remembered; --include-unlearned
 altarmy-profit ui                              # web UI on http://127.0.0.1:8600 (--port, --no-browser)
 altarmy-profit watch --server URL --key KEY    # upload the addon files to a hosted site as WoW rewrites them
+altarmy-profit ingest --only-if-new            # the newest build, unless already loaded (the hosted daily job)
+altarmy-profit migrate                         # migrate the database now (each hosted deploy runs this once)
+altarmy-profit prune                           # drop price observations older than 90 days
 ```
 
 Every command takes `--game-version forever|tbc` (default `forever`) before the command name; it picks the
@@ -53,7 +56,7 @@ The database is `data/altarmy-profit.sqlite`; `--db <file>` picks another SQLite
 (a SQLAlchemy URL such as `postgresql+psycopg://user:pass@host/db`) another database. Its schema is
 migrated automatically (Alembic). The databases of earlier releases (`data/altarmy-profit-<version>.db`,
 and the older `data/altarmy-profit.db`) are imported into it the first time a command runs without
-`--db`, prices, characters and settings included, and kept renamed to `*.imported`.
+`--db` or `DATABASE_URL`, prices, characters and settings included, and kept renamed to `*.imported`.
 
 `import-auctionator` reads Auctionator's **account-wide** SavedVariables file (not the per-character
 one) and records the realm's scan for its auction house: each item's latest minimum buyout, plus
@@ -101,13 +104,16 @@ auction house keeps its own, so switching realms back and forth loses nothing.
 
 - `local` (the default): one user, no sign-in, the addon files above are synced. Everything this README
   describes.
-- `hosted`: the multi-user web app being built (see `docs/HOSTED_PLAN.md`). Visitors are signed in with
+- `hosted`: the multi-user web app at https://alt-army-prod.web.app (see `docs/HOSTED_PLAN.md` and
+  **Deploy** below). Visitors are signed in with
   Firebase, anonymously at first; a guest sees the Prices tab (items of required level 30 and below) and
   the Upload tab. Linking an email address and password (the header's **Link account**) keeps the same
   user and unlocks Search, Manage and every price; **Sign in** gets back to that account on another
   browser (with **Forgot password?**), and **Sign out** starts a new guest session. Each user has their
   own characters, selection and AH blocks. The server never reads local addon files and has no game data
-  download or reload button: data comes in through uploads (below). Needs `pip install -e ".[hosted]"`
+  download or reload button: data comes in through uploads (below), game data through a daily job. The
+  footer's **Privacy** note says what is stored and deletes the account (`DELETE /api/me`). Requests are
+  rate-limited per client IP and per user (429). Needs `pip install -e ".[hosted]"`
   and `FIREBASE_PROJECT_ID`, `FIREBASE_API_KEY` and `FIREBASE_AUTH_DOMAIN`.
 
 In hosted mode:
@@ -132,15 +138,17 @@ In hosted mode:
 project and keeps them in the local database file next to local mode's user. The project has the
 **Anonymous** and **Email/Password** sign-in providers enabled. Its browser API key only calls the Identity
 Toolkit and Token Service APIs (sign-in and token refresh) and only from `http://localhost:5173`,
-`http://localhost:8600`, the same two on `127.0.0.1`, `alt-army-prod.firebaseapp.com` and
-`alt-army-prod.web.app` (Google's referrer patterns take no port wildcard). To serve the front end from
-another origin, pass the full list again, since the update replaces it:
+`http://localhost:8600`, the same two on `127.0.0.1`, `alt-army-prod.firebaseapp.com`,
+`alt-army-prod.web.app` and the staging channel `alt-army-prod--staging-hn1s06um.web.app` (Google's
+referrer patterns take no port wildcard). To serve the front end from another origin, pass the full list
+again, since the update replaces it. Firebase adds Hosting channels to Auth's authorized domains by itself;
+a custom domain needs adding there too.
 
 ```powershell
 gcloud services api-keys update 9856a0a7-d9e2-4b98-ad97-543f83f7bb5b --project alt-army-prod `
   --billing-project alt-army-prod `
   --api-target=service=identitytoolkit.googleapis.com --api-target=service=securetoken.googleapis.com `
-  --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-prod.firebaseapp.com/*,https://alt-army-prod.web.app/*,https://<new origin>/*"
+  --allowed-referrers="http://localhost:5173/*,http://localhost:8600/*,http://127.0.0.1:5173/*,http://127.0.0.1:8600/*,https://alt-army-prod.firebaseapp.com/*,https://alt-army-prod.web.app/*,https://alt-army-prod--staging-hn1s06um.web.app/*,https://<new origin>/*"
 ```
 
 To try hosted mode without touching the real project, run the Firebase Auth emulator (`firebase.json`;
@@ -155,6 +163,46 @@ altarmy-profit ui
 
 The browser then signs in against the emulator. Tests never need Firebase: they pass a fake token verifier
 to `create_app`.
+
+### Deploy
+
+Hosted mode runs on Google Cloud in `alt-army-prod` (us-central1). The config is in the repo:
+`Dockerfile`, `firebase.json` / `firebase.staging.json` (Hosting) and `deploy/`.
+
+| Piece | What |
+|-------|------|
+| Firebase Hosting | serves `frontend/dist`; `/api/**` rewrites to Cloud Run. Prod is the live site; staging is the `staging` preview channel (https://alt-army-prod--staging-hn1s06um.web.app, expires 30 days after its last deploy) |
+| Cloud Run services | `altarmy` (min 0, max 2) and `altarmy-staging` (max 1): the API, 1 vCPU, 1 GiB. Instances never migrate |
+| Cloud Run jobs | the same image running the CLI: `altarmy-migrate` (each deploy, before the service), `altarmy-ingest-tbc` / `-forever` (`ingest --only-if-new`), `altarmy-prune`. Staging has `altarmy-staging-migrate` |
+| Cloud Scheduler | ingest tbc 09:00 UTC, ingest forever 09:15, prune 10:00, run as `altarmy-scheduler` |
+| Cloud SQL | `altarmy-pg`: Postgres 16, db-f1-micro, databases `altarmy` and `altarmy_staging` |
+| Secret Manager | `database-url`, `database-url-staging`: each database's `DATABASE_URL` (Cloud Run's Cloud SQL socket) |
+
+About $9 to 11 a month, nearly all of it Cloud SQL; Cloud Run stays in its free tier at hobby traffic.
+
+Deploys come from GitHub Actions (`.github/workflows/deploy.yml`). After `check` passes on a push to main,
+it deploys prod; **Run workflow** deploys staging (or prod). It signs in through Workload Identity
+Federation and needs two repository variables (Settings → Secrets and variables → Actions → Variables):
+
+- `GCP_WIF_PROVIDER` = `projects/516573536063/locations/global/workloadIdentityPools/github/providers/github-actions`
+- `GCP_DEPLOY_SA` = `altarmy-deploy@alt-army-prod.iam.gserviceaccount.com`
+
+By hand (Git Bash, with gcloud and the Firebase CLI signed in; no Docker needed):
+
+```bash
+IMAGE=$(BUILDER=cloudbuild deploy/build.sh)   # build on Cloud Build, push to Artifact Registry
+deploy/deploy.sh staging "$IMAGE"             # jobs, migrate, service, front end to the staging channel
+deploy/deploy.sh prod "$IMAGE"
+```
+
+A new database gets its game data from an ingest run: `gcloud run jobs execute altarmy-ingest-tbc --wait`
+(prod), or for staging its migrate job with other arguments:
+`gcloud run jobs execute altarmy-staging-migrate --args=--game-version,tbc,ingest,--only-if-new,--cache,/tmp/cache`
+(add `--region us-central1 --project alt-army-prod --billing-project alt-army-prod` to both).
+
+`deploy/setup.sh` holds the one-time setup, one section per run: APIs, registry, service accounts and
+roles, Cloud SQL, each database's user and secret, Workload Identity Federation, and the schedules. Every
+command passes `--project alt-army-prod --billing-project alt-army-prod`, so gcloud's defaults don't matter.
 
 ### Front-end development
 
@@ -215,7 +263,8 @@ Coarse Thread,120
   and the CLI watcher that sends them
 - `src/altarmy_profit/store.py` – load the database into engine dataclasses
 - `src/altarmy_profit/service.py`, `api.py` – use-cases and the FastAPI JSON API behind the web UI
-- `src/altarmy_profit/cli.py` – command line
+- `src/altarmy_profit/cli.py` – command line; `ratelimit.py` – hosted mode's per-IP and per-user limits
+- `Dockerfile`, `firebase.json`, `deploy/`, `.github/workflows/deploy.yml` – the hosted deploy (see Deploy)
 - `src/altarmy_profit/vmangos.py`, `cmangos.py`, `disenchant_rates.py` – sources for the hand data files
 - `scripts/bench_rank.py` (ranking timings), `scripts/probe_blizzard_api.py` (Blizzard AH API check)
 - `frontend/` – Vite + React + TypeScript + Mantine web UI

@@ -4,6 +4,7 @@ import { AccountStatus, LinkPrompt } from './components/Account'
 import { GameVersionProvider, GameVersionSwitch } from './components/GameVersionProvider'
 import { ManageTab } from './components/ManageTab'
 import { PricesTab } from './components/PricesTab'
+import { PrivacyNote } from './components/PrivacyNote'
 import { SearchTab } from './components/SearchTab'
 import { UploadTab } from './components/UploadTab'
 import { useSession } from './lib/session'
@@ -64,6 +65,7 @@ function Shell() {
           </Tabs.Panel>
         )}
       </Tabs>
+      {mode === 'hosted' && <PrivacyNote />}
     </Container>
   )
 }

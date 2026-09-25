@@ -8,28 +8,31 @@ Every route but /api/config and /api/versions has a user (`CurrentUser`). Local 
 the default) always has `auth.LOCAL_USER`; hosted mode verifies the Firebase ID token sent as a bearer
 token. Rankings, characters and AH blocks need the linked tier (`LinkedUser`, else 403); the free tier sees
 prices only for items up to `auth.FREE_TIER_MAX_LEVEL`. The addon file sync, source files and game data
-update exist only in local mode (`LOCAL_ONLY`, else 404). Uploads also take an API key (`Uploader`), the
-CLI watcher's credential; no other route does, so a leaked key can only upload.
+update exist only in local mode (`LOCAL_ONLY`, else 404); account deletion only in hosted mode
+(`HOSTED_ONLY`). Uploads also take an API key (`Uploader`), the CLI watcher's credential; no other route
+does, so a leaked key can only upload. Hosted mode rate-limits every request per client IP and per user
+(`ratelimit`), and no /api response may be cached (Firebase Hosting's CDN sits in front).
 """
 
 from __future__ import annotations
 
 import threading
 import urllib.error
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Literal, cast
 
-from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, Form, HTTPException, Query, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection
 
-from . import altarmy, auth, db, engine, prices, service, store, uploads, users, versions
+from . import altarmy, auth, db, engine, prices, ratelimit, service, store, uploads, users, versions
 from .store import CACHE_DIR
 from .versions import GameVersion, GameVersionKey
 
@@ -428,6 +431,22 @@ class AuthState:
     database: db.Database
     verifier: auth.TokenVerifier | None  # hosted mode
     firebase: auth.FirebaseConfig | None  # hosted mode
+    accounts: auth.AccountAdmin | None = None  # hosted mode: deletes sign-in accounts
+    per_ip: ratelimit.RateLimiter | None = None  # hosted mode
+    per_uid: ratelimit.RateLimiter | None = None  # hosted mode
+
+
+def _too_many(retry: float) -> HTTPException:
+    return HTTPException(
+        429, "Too many requests: slow down.", headers={"Retry-After": str(max(1, round(retry)))}
+    )
+
+
+def _limit_user(a: AuthState, user: auth.User) -> auth.User:
+    retry = a.per_uid.hit(user.uid) if a.per_uid is not None else None
+    if retry is not None:
+        raise _too_many(retry)
+    return user
 
 
 def _auth(request: Request) -> AuthState:
@@ -451,6 +470,7 @@ def _current_user(
         user = auth.user_from_claims(a.verifier.verify(credentials.credentials))
     except auth.InvalidToken as e:
         raise HTTPException(401, f"Invalid sign-in token: {e}", headers={"WWW-Authenticate": "Bearer"}) from e
+    _limit_user(a, user)
     with a.database.begin() as conn:
         users.ensure_user(conn, user)
     return user
@@ -472,7 +492,7 @@ def _uploader(
         user = users.user_for_key(conn, token)
     if user is None:
         raise HTTPException(401, "Unknown or revoked API key.", headers={"WWW-Authenticate": "Bearer"})
-    return user
+    return _limit_user(a, user)
 
 
 Uploader = Annotated[auth.User, Depends(_uploader)]
@@ -493,6 +513,14 @@ def _local_only(request: Request) -> None:
 
 
 LOCAL_ONLY = [Depends(_local_only)]  # route dependencies of the local file sync and admin actions
+
+
+def _hosted_only(request: Request) -> None:
+    if _auth(request).mode != "hosted":
+        raise HTTPException(404, "Only in hosted mode.")
+
+
+HOSTED_ONLY = [Depends(_hosted_only)]  # route dependencies of account management
 
 
 def _max_level(user: auth.User) -> int | None:
@@ -1068,6 +1096,21 @@ def get_me(user: CurrentUser) -> Me:
     return Me(uid=user.uid, tier=user.tier, free_max_level=auth.FREE_TIER_MAX_LEVEL)
 
 
+@router.delete("/me", dependencies=HOSTED_ONLY, status_code=204)
+def delete_me(request: Request, user: CurrentUser) -> None:
+    """Delete your account: your characters, settings, AH blocks, upload history and API keys, then the
+    sign-in account itself. Prices you uploaded stay in the pool, no longer linked to you."""
+    a = _auth(request)
+    if a.accounts is None:
+        raise HTTPException(501, "Account deletion is not configured.")
+    with a.database.begin() as conn:  # rolled back if the sign-in account can't be deleted
+        users.delete_user(conn, user.uid)
+        try:
+            a.accounts.delete_user(user.uid)
+        except auth.AccountError as e:
+            raise HTTPException(502, f"Could not delete the sign-in account: {e}") from e
+
+
 @router.get("/versions")
 def get_versions(request: Request) -> list[VersionOut]:
     """The game versions served, each with the build its data comes from."""
@@ -1089,6 +1132,8 @@ def create_app(
     mode: auth.Mode | None = None,
     verifier: auth.TokenVerifier | None = None,
     firebase: auth.FirebaseConfig | None = None,
+    accounts: auth.AccountAdmin | None = None,
+    limits: ratelimit.Limits | None = None,
 ) -> FastAPI:
     """Build the app for `game_versions`, each with its own data files, sharing `database` (default:
     `DATABASE_URL`, else data/altarmy-profit.sqlite). Touches no database or network (the schema is
@@ -1096,16 +1141,41 @@ def create_app(
 
     `mode` defaults to `ALTARMY_MODE` (local). Hosted mode takes the Firebase project from the environment
     (`auth.FirebaseConfig.from_env`) unless `firebase` is given, and verifies tokens with firebase-admin
-    unless a `verifier` is given (tests pass a fake one)."""
-    database = database or db.Database(db.default_url())
+    unless a `verifier` is given (tests pass a fake one), which also deletes accounts unless `accounts` is
+    given. Hosted mode rate-limits with `limits` (default `ratelimit.HOSTED_LIMITS`) and never migrates
+    the default database: each deploy does, once."""
     mode = mode or auth.mode_from_env()
+    database = database or db.Database(db.default_url(), migrate=mode == "local")
+    per_ip = per_uid = None
     if mode == "hosted":
         firebase = firebase or auth.FirebaseConfig.from_env()
         verifier = verifier or auth.FirebaseVerifier(firebase.project_id)
+        if accounts is None and isinstance(verifier, auth.AccountAdmin):
+            accounts = verifier
+        limits = limits or ratelimit.HOSTED_LIMITS
+        per_ip = ratelimit.RateLimiter(limits.per_ip, limits.window)
+        per_uid = ratelimit.RateLimiter(limits.per_uid, limits.window)
     else:
-        firebase = verifier = None
+        firebase = verifier = accounts = None
     app = FastAPI(title="altarmy-profit", version="0.1.0")
-    app.state.auth = AuthState(mode, database, verifier, firebase)
+    app.state.auth = AuthState(mode, database, verifier, firebase, accounts, per_ip, per_uid)
+
+    @app.middleware("http")
+    async def api_headers_and_ip_limit(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        peer = request.client.host if request.client else None
+        retry = per_ip.hit(ratelimit.client_ip(request.headers, peer)) if per_ip is not None else None
+        if retry is not None:
+            e = _too_many(retry)
+            response: Response = JSONResponse({"detail": e.detail}, 429, headers=e.headers)
+        else:
+            response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
     app.state.wow = {
         key: AppState(
             v,
